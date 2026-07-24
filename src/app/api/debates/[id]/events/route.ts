@@ -1,5 +1,5 @@
-import { getDebate, subscribeToDebate } from "@polyvise/debate-engine/debate/store";
-import type { DebateLiveEvent } from "@polyvise/debate-engine/debate/types";
+import { getDebate, subscribeToDebate } from "@/server/debate-store";
+import type { DebateLiveEvent } from "@polyvise/core/debate/types";
 
 export const dynamic = "force-dynamic";
 

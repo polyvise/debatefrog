@@ -28,7 +28,7 @@ CC BY 4.0 requires attribution. The deployed `/froglings` page shows
 a small daveincamas / CC BY link in the footer that points at the
 Freesound page, which together with this CREDITS.md satisfies the
 license. If you swap or remove those clips, also update the in-app
-attribution in `apps/debatefrog-web/src/components/froglings-workspace.tsx`.
+attribution in `src/components/froglings-workspace.tsx`.
 
 ## File layout
 
@@ -66,7 +66,7 @@ The hook appends that hash as `?v=<hash>` on every fetch, so the
 browser sees a different URL and fetches the new bytes without any
 hard-refresh needed. The script runs automatically as `predev` and
 `prebuild`; you can also run it manually with
-`npm run audio:manifest -w @polyvise/debatefrog-web`.
+`npm run audio:manifest`.
 
 ## Format choice — short version
 

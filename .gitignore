@@ -1,0 +1,13 @@
+.next
+node_modules
+.DS_Store
+dist
+coverage
+.env
+.env.local
+.env.*.local
+*.secrets.env
+.secrets.env
+drizzle/meta
+*.tsbuildinfo
+*.log

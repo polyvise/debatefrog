@@ -1,23 +1,50 @@
 {
-  "name": "@polyvise/debatefrog-web",
-  "version": "0.1.0",
+  "name": "@polyvise/debatefrog",
+  "version": "0.3.0",
   "private": true,
-  "description": "Playful Debatefrog interface powered by the Polyvise debate engine.",
+  "description": "Debatefrog reference application powered by the Polyvise debate engine.",
   "scripts": {
     "predev": "node scripts/generate-audio-manifest.mjs",
     "dev": "next dev --port 3001",
     "prebuild": "node scripts/generate-audio-manifest.mjs",
     "build": "next build",
-    "start": "next start --port 3001",
+    "start": "next start",
     "audio:manifest": "node scripts/generate-audio-manifest.mjs",
     "eval:models": "tsx scripts/evaluate-models.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "verify": "npm run typecheck && npm test && npm run build"
   },
   "dependencies": {
-    "@polyvise/debate-engine": "0.1.0",
+    "@polyvise/core": "0.3.1",
+    "drizzle-orm": "latest",
     "lucide-react": "latest",
     "next": "latest",
+    "postgres": "latest",
     "react": "latest",
-    "react-dom": "latest"
+    "react-dom": "latest",
+    "zod": "latest"
+  },
+  "devDependencies": {
+    "@tailwindcss/typography": "latest",
+    "@types/node": "latest",
+    "@types/react": "latest",
+    "@types/react-dom": "latest",
+    "autoprefixer": "latest",
+    "drizzle-kit": "latest",
+    "eslint": "latest",
+    "eslint-config-next": "latest",
+    "jsdom": "latest",
+    "postcss": "latest",
+    "tailwindcss": "^3.4.17",
+    "tsx": "latest",
+    "typescript": "latest",
+    "vite-tsconfig-paths": "latest",
+    "vitest": "latest"
+  },
+  "engines": {
+    "node": ">=20.11.0"
   }
 }

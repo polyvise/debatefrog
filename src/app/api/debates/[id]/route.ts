@@ -1,4 +1,4 @@
-import { getDebate } from "@polyvise/debate-engine/debate/store";
+import { getDebate } from "@/server/debate-store";
 
 type RouteContext = {
   params: Promise<{ id: string }> | { id: string };

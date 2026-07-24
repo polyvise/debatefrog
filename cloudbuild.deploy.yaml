@@ -1,0 +1,19 @@
+steps:
+  - name: gcr.io/cloud-builders/docker
+    secretEnv:
+      - NPM_TOKEN
+    args:
+      - build
+      - --secret
+      - id=npm_token,env=NPM_TOKEN
+      - --tag
+      - ${_IMAGE}
+      - .
+
+availableSecrets:
+  secretManager:
+    - versionName: projects/${PROJECT_ID}/secrets/polyvise-packages-token/versions/latest
+      env: NPM_TOKEN
+
+images:
+  - ${_IMAGE}

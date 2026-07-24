@@ -9,7 +9,7 @@ import {
   runHybridCouncilDebate,
   type DebateRun,
   type ModelSnapshot
-} from "@polyvise/debate-engine";
+} from "@polyvise/core";
 
 type EvalQuestion = {
   id: string;
@@ -140,7 +140,7 @@ type CachedDebateRunArtifact = {
 };
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
-const rootDir = path.resolve(scriptDir, "../../..");
+const rootDir = path.resolve(scriptDir, "..");
 const appDir = path.resolve(scriptDir, "..");
 const questionsPath = path.join(appDir, "evals/questions.json");
 const resultsDir = path.join(appDir, "evals/results");
@@ -376,7 +376,7 @@ async function main() {
     status: models.some((model) => (model.failureCount ?? 0) > 0) ? "partial" : "complete",
     generatedAt,
     questionSet: {
-      path: "apps/debatefrog-web/evals/questions.json",
+      path: "evals/questions.json",
       count: questions.length
     },
     summary: {

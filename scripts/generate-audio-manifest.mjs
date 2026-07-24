@@ -91,7 +91,7 @@ async function main() {
 
   const generated =
     "// AUTO-GENERATED FILE — do not edit by hand.\n" +
-    "// Regenerated from apps/debatefrog-web/public/sounds/ by\n" +
+    "// Regenerated from public/sounds/ by\n" +
     "// scripts/generate-audio-manifest.mjs on every predev / prebuild.\n" +
     "// See use-frog-sounds.ts for how this is consumed.\n\n" +
     "export type AudioFormat = \"wav\" | \"ogg\" | \"mp3\";\n\n" +

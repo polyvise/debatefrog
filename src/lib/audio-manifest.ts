@@ -1,5 +1,5 @@
 // AUTO-GENERATED FILE — do not edit by hand.
-// Regenerated from apps/debatefrog-web/public/sounds/ by
+// Regenerated from public/sounds/ by
 // scripts/generate-audio-manifest.mjs on every predev / prebuild.
 // See use-frog-sounds.ts for how this is consumed.
 

@@ -74,7 +74,7 @@ import type {
   RoundTurn,
   Scorecard,
   PlaceholderInfo
-} from "@polyvise/debate-engine/debate/types";
+} from "@polyvise/core/debate/types";
 
 const kidPrompts = [
   "Should schools have longer recess?",

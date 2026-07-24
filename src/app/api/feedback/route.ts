@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { ZodError } from "zod";
-import { submitFeedback } from "@polyvise/debate-engine/debate/store";
+import { submitFeedback } from "@/server/debate-store";
 
 const feedbackApp = process.env.POLYVISE_APP_CHANNEL === "preview" ? "debatefrog-preview" : "debatefrog";
 

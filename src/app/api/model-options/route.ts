@@ -1,4 +1,4 @@
-import { loadDebateRuntimeConfig, modelOptionsFromConfig } from "@polyvise/debate-engine/debate/config";
+import { loadDebateRuntimeConfig, modelOptionsFromConfig } from "@polyvise/core/debate/config";
 
 export async function GET() {
   return Response.json(

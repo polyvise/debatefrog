@@ -1,7 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  typedRoutes: true,
-  transpilePackages: ["@polyvise/debate-engine"]
+  typedRoutes: true
 };
 
 export default nextConfig;
