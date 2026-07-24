@@ -688,6 +688,13 @@ export function FroglingsWorkspace() {
           ) : null}
         </Link>
         <div className="flex items-center gap-3">
+          <Link
+            href={"/stats" as Route}
+            className="inline-flex items-center gap-1.5 rounded-full bg-white/70 px-3 py-1.5 text-xs font-bold text-pond shadow-sm transition hover:bg-white"
+          >
+            <BarChart3 className="h-3.5 w-3.5" />
+            Pond stats
+          </Link>
           <button
             type="button"
             onClick={sounds.toggleMute}

@@ -7,11 +7,13 @@ export interface DebateRepository {
   save(debate: DebateRecord): Promise<void>;
   get(id: string): Promise<DebateRecord | null>;
   list(): Promise<DebateRecord[]>;
+  listAll(): Promise<DebateRecord[]>;
 }
 
 export interface FeedbackRepository {
   save(feedback: UserFeedback): Promise<void>;
   list(): Promise<UserFeedback[]>;
+  listAll(): Promise<UserFeedback[]>;
 }
 
 type MemoryRepositoryState = {
@@ -53,6 +55,10 @@ export class MemoryDebateRepository implements DebateRepository {
   async list(): Promise<DebateRecord[]> {
     return Array.from(this.state.debates.values()).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
+
+  async listAll(): Promise<DebateRecord[]> {
+    return this.list();
+  }
 }
 
 export class MemoryFeedbackRepository implements FeedbackRepository {
@@ -68,6 +74,10 @@ export class MemoryFeedbackRepository implements FeedbackRepository {
 
   async list(): Promise<UserFeedback[]> {
     return Array.from(this.state.feedback.values()).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  async listAll(): Promise<UserFeedback[]> {
+    return this.list();
   }
 }
 
@@ -100,6 +110,11 @@ export class PostgresDebateRepository implements DebateRepository {
     const rows = await getDb().select().from(debateRecords).orderBy(desc(debateRecords.updatedAt)).limit(50);
     return rows.map((row) => row.record as DebateRecord);
   }
+
+  async listAll(): Promise<DebateRecord[]> {
+    const rows = await getDb().select().from(debateRecords).orderBy(desc(debateRecords.updatedAt));
+    return rows.map((row) => row.record as DebateRecord);
+  }
 }
 
 export class PostgresFeedbackRepository implements FeedbackRepository {
@@ -120,6 +135,20 @@ export class PostgresFeedbackRepository implements FeedbackRepository {
 
   async list(): Promise<UserFeedback[]> {
     const rows = await getDb().select().from(userFeedback).orderBy(desc(userFeedback.createdAt)).limit(100);
+    return rows.map((row) => ({
+      id: row.id,
+      app: row.app,
+      message: row.message,
+      debateId: row.debateId ?? undefined,
+      pagePath: row.pagePath ?? undefined,
+      userAgent: row.userAgent ?? undefined,
+      metadata: row.metadata as Record<string, unknown>,
+      createdAt: row.createdAt.toISOString()
+    }));
+  }
+
+  async listAll(): Promise<UserFeedback[]> {
+    const rows = await getDb().select().from(userFeedback).orderBy(desc(userFeedback.createdAt));
     return rows.map((row) => ({
       id: row.id,
       app: row.app,
@@ -204,6 +233,41 @@ export class FirestoreDebateRepository implements DebateRepository {
       const debate = parseFirestoreDebate(document);
       return debate ? [debate] : [];
     });
+  }
+
+  async listAll(): Promise<DebateRecord[]> {
+    const debates: DebateRecord[] = [];
+    let pageToken: string | undefined;
+
+    do {
+      const query = new URLSearchParams({
+        pageSize: "1000",
+        orderBy: "updatedAt desc"
+      });
+      if (pageToken) {
+        query.set("pageToken", pageToken);
+      }
+
+      const response = await this.request(`documents/${this.collection}?${query}`, {
+        method: "GET"
+      });
+      if (!response) {
+        break;
+      }
+
+      debates.push(
+        ...((response.documents ?? []) as unknown[]).flatMap((document) => {
+          const debate = parseFirestoreDebate(document);
+          return debate ? [debate] : [];
+        })
+      );
+      pageToken =
+        typeof response.nextPageToken === "string" && response.nextPageToken
+          ? response.nextPageToken
+          : undefined;
+    } while (pageToken);
+
+    return debates;
   }
 
   private async request(
@@ -295,6 +359,44 @@ export class FirestoreFeedbackRepository implements FeedbackRepository {
       const feedback = parseFirestoreFeedback(document);
       return feedback ? [feedback] : [];
     });
+  }
+
+  async listAll(): Promise<UserFeedback[]> {
+    const feedback: UserFeedback[] = [];
+    let pageToken: string | undefined;
+
+    do {
+      const query = new URLSearchParams({
+        pageSize: "1000",
+        orderBy: "createdAt desc"
+      });
+      if (pageToken) {
+        query.set("pageToken", pageToken);
+      }
+
+      const response = await firestoreRequest(
+        this.projectId,
+        this.databaseId,
+        `documents/${this.collection}?${query}`,
+        { method: "GET" }
+      );
+      if (!response) {
+        break;
+      }
+
+      feedback.push(
+        ...((response.documents ?? []) as unknown[]).flatMap((document) => {
+          const item = parseFirestoreFeedback(document);
+          return item ? [item] : [];
+        })
+      );
+      pageToken =
+        typeof response.nextPageToken === "string" && response.nextPageToken
+          ? response.nextPageToken
+          : undefined;
+    } while (pageToken);
+
+    return feedback;
   }
 }
 
