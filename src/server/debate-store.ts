@@ -4,11 +4,7 @@ import {
   loadDebateRuntimeConfig,
   type DebateRuntimeConfig
 } from "@polyvise/core/debate/config";
-import {
-  debateRequestSchema,
-  feedbackRequestSchema,
-  followupOutputSchema
-} from "@polyvise/core/debate/schema";
+import { feedbackRequestSchema, followupOutputSchema } from "@polyvise/core/debate/schema";
 import {
   frameDebateRequest,
   productNotes,
@@ -23,6 +19,18 @@ import type {
   ModelSnapshot,
   UserFeedback
 } from "@polyvise/core/debate/types";
+import {
+  resolveDebateStepModelDefaults,
+  resolveDebateStepModels,
+  type DebateStepModelSelections,
+  type PartialDebateStepModelSelections
+} from "@/lib/debate-step-models";
+import {
+  debatefrogRequestSchema,
+  toCoreDebateRequest,
+  type DebatefrogRequest
+} from "@/server/debate-request";
+import { RoundModelLlmProvider } from "@/server/round-model-provider";
 
 const repository = createDefaultDebateRepository();
 const feedbackRepository = createDefaultFeedbackRepository();
@@ -92,13 +100,15 @@ function scheduleBusCleanup(id: string, delayMs = 5 * 60 * 1000): void {
   }, delayMs).unref?.();
 }
 
-function buildSeedRecord(input: DebateRequest): {
+function buildSeedRecord(input: DebatefrogRequest): {
   record: DebateRecord;
   request: DebateRequest;
   config: DebateRuntimeConfig;
+  stepModels: DebateStepModelSelections;
   framed: ReturnType<typeof frameDebateRequest>;
 } {
-  const request = debateRequestSchema.parse(input);
+  const parsed = debatefrogRequestSchema.parse(input) as DebatefrogRequest;
+  const request = toCoreDebateRequest(parsed);
   const id = `debate_${randomUUID().slice(0, 10)}`;
   const framed = frameDebateRequest(request);
   const createdAt = new Date().toISOString();
@@ -119,16 +129,47 @@ function buildSeedRecord(input: DebateRequest): {
   };
 
   const baseConfig = loadDebateRuntimeConfig();
+  const defaults = resolveDebateStepModelDefaults();
+  const requestedStepModels = stepModelsFromRequest(parsed.models);
+  const stepModels = resolveDebateStepModels(requestedStepModels, defaults);
   const config: DebateRuntimeConfig = {
     ...baseConfig,
-    quickModel: request.models?.quick?.trim() || baseConfig.quickModel,
-    deepModel: request.models?.deep?.trim() || baseConfig.deepModel,
-    yesModel: request.models?.yes?.trim() || request.models?.quick?.trim() || baseConfig.yesModel,
-    noModel: request.models?.no?.trim() || request.models?.deep?.trim() || baseConfig.noModel,
-    judgeModel: request.models?.judge?.trim() || baseConfig.judgeModel
+    quickModel: stepModels.opening,
+    deepModel: stepModels.rebuttal,
+    // Team metadata has one model field per frog. Opening is the least
+    // surprising representative value; actual calls are routed per round.
+    yesModel: stepModels.opening,
+    noModel: stepModels.opening,
+    judgeModel: stepModels.judge
   };
 
-  return { record, request, config: configWithDevOverrides(config, request), framed };
+  return {
+    record,
+    request,
+    config: configWithDevOverrides(config, request),
+    stepModels,
+    framed
+  };
+}
+
+function stepModelsFromRequest(
+  models: DebatefrogRequest["models"]
+): PartialDebateStepModelSelections | undefined {
+  if (!models) return undefined;
+
+  const mirroredLegacyModel =
+    models.yes?.trim() && models.yes.trim() === models.no?.trim()
+      ? models.yes.trim()
+      : undefined;
+
+  return {
+    opening: models.opening?.trim() || mirroredLegacyModel || models.quick?.trim(),
+    crossExamination:
+      models.crossExamination?.trim() || mirroredLegacyModel || models.quick?.trim(),
+    rebuttal: models.rebuttal?.trim() || mirroredLegacyModel || models.deep?.trim(),
+    closing: models.closing?.trim() || mirroredLegacyModel || models.deep?.trim(),
+    judge: models.judge?.trim()
+  };
 }
 
 function configWithDevOverrides(config: DebateRuntimeConfig, request: DebateRequest): DebateRuntimeConfig {
@@ -149,8 +190,8 @@ export interface StartDebateResult {
   completion: Promise<DebateRecord>;
 }
 
-export async function startDebate(input: DebateRequest): Promise<StartDebateResult> {
-  const { record, request, config, framed } = buildSeedRecord(input);
+export async function startDebate(input: DebatefrogRequest): Promise<StartDebateResult> {
+  const { record, request, config, stepModels, framed } = buildSeedRecord(input);
   await repository.save(record);
   const bus = getOrCreateBus(record.id);
 
@@ -158,6 +199,7 @@ export async function startDebate(input: DebateRequest): Promise<StartDebateResu
     try {
       const run = await runHybridCouncilDebate(record.id, request, framed, {
         config,
+        provider: new RoundModelLlmProvider(config, stepModels),
         emit: (event) => bus.emit(event)
       });
       const completed: DebateRecord = {
@@ -205,7 +247,7 @@ function modelSnapshotFromError(error: unknown): ModelSnapshot | null {
   return null;
 }
 
-export async function createDebate(input: DebateRequest): Promise<DebateRecord> {
+export async function createDebate(input: DebatefrogRequest): Promise<DebateRecord> {
   const { completion } = await startDebate(input);
   return completion;
 }

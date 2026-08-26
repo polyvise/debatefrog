@@ -3,6 +3,7 @@ import type { EvidenceSource } from "@polyvise/core/debate/types";
 export type FroglingsSourceChip = {
   id: string;
   label: string;
+  detail: string;
   url: string;
 };
 
@@ -25,6 +26,7 @@ export function buildFroglingsSourceChips(
     chips.push({
       id: source.id,
       label: sourceChipLabel(source),
+      detail: sourceChipDetail(source),
       url: source.url
     });
   }
@@ -60,12 +62,24 @@ function isGenericMockMethodSource(source: EvidenceSource): boolean {
 }
 
 function sourceChipLabel(source: EvidenceSource): string {
-  const publisher = source.publisher.trim();
-  if (publisher && !publisher.toLowerCase().includes("internal reference")) {
-    return trimSourceLabel(publisher);
-  }
+  return trimSourceLabel(source.title.trim() || source.publisher.trim());
+}
 
-  return trimSourceLabel(source.title);
+function sourceChipDetail(source: EvidenceSource): string {
+  const parts = [source.publisher.trim(), formatPublishedAt(source.publishedAt)].filter(Boolean);
+  return parts.join(" · ");
+}
+
+function formatPublishedAt(value: string | undefined): string {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC"
+  }).format(date);
 }
 
 function trimSourceLabel(value: string): string {

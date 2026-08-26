@@ -18,7 +18,7 @@
  */
 
 const INTRO_SEEN_KEY = "froglings:intro-seen";
-const MODEL_SETTINGS_KEY = "froglings:model-settings:v3";
+const MODEL_SETTINGS_KEY = "froglings:model-settings:v4";
 const USER_PREFERENCES_KEY = "froglings:user-preferences";
 const isPreviewDeploy = process.env.NEXT_PUBLIC_DEPLOY_CHANNEL === "preview";
 const showApiDebugDetails = process.env.NODE_ENV !== "production";
@@ -58,6 +58,12 @@ import { SlowPrint } from "@/components/slow-print";
 import { useFrogSounds } from "@/components/use-frog-sounds";
 import { FroglingsIntro } from "@/components/froglings-intro";
 import { buildFroglingsSourceChips, type FroglingsSourceChip } from "@/lib/source-chips";
+import {
+  debateStepModelKeys,
+  debateStepModelLabels,
+  type DebateStepModelKey,
+  type DebateStepModelSelections
+} from "@/lib/debate-step-models";
 import type {
   Claim,
   DebateLiveEvent,
@@ -107,8 +113,7 @@ const DEBATE_UNAVAILABLE_MESSAGE =
 const CLIENT_API_MAX_ATTEMPTS = 3;
 const CLIENT_API_RETRY_BASE_DELAY_MS = 500;
 
-type ModelRole = "yes" | "no" | "judge";
-type ModelSelections = Record<ModelRole, string>;
+type ModelSelections = DebateStepModelSelections;
 type ModelOption = { id: string; label: string };
 type ModelOptionsResponse = {
   defaults: ModelSelections;
@@ -957,11 +962,9 @@ function FroglingsControlPanel({
   const [apiCallsOpen, setApiCallsOpen] = useState(false);
   const panelRef = useRef<HTMLElement>(null);
   const controlButtonRef = useRef<HTMLButtonElement>(null);
-  const roles: Array<{ key: ModelRole; label: string }> = [
-    { key: "yes", label: "YES frog" },
-    { key: "no", label: "NO frog" },
-    { key: "judge", label: "Judge frog" }
-  ];
+  const roles: Array<{ key: DebateStepModelKey; label: string }> = debateStepModelKeys.map(
+    (key) => ({ key, label: debateStepModelLabels[key] })
+  );
   const maxDurationMs = Math.max(...apiCalls.map((call) => call.durationMs), 1);
   const devLiveApisAvailable = Boolean(modelOptions?.dev?.liveApiToggleAvailable);
   const devLiveApisReady = Boolean(modelOptions?.dev?.hasOpenRouterKey && modelOptions?.dev?.hasTavilyKey);
@@ -1078,7 +1081,7 @@ function FroglingsControlPanel({
           <div className="mt-3 rounded-xl border border-white/10 bg-white/[0.06] p-3">
             <div className="text-[11px] font-black uppercase tracking-wide text-mint">Model choices</div>
             <p className="mt-1 text-xs leading-relaxed text-white/65">
-              Pick which curated model speaks for each frog.
+              Pick one model for each debate step. YES and NO always use the same model in a round.
             </p>
 
             {modelOptionsError ? (
@@ -1263,11 +1266,12 @@ function sanitizeModelSelections(
   stored: Partial<ModelSelections>
 ): ModelSelections {
   const ids = new Set(modelOptions.options.map((option) => option.id));
-  return {
-    yes: stored.yes && ids.has(stored.yes) ? stored.yes : modelOptions.defaults.yes,
-    no: stored.no && ids.has(stored.no) ? stored.no : modelOptions.defaults.no,
-    judge: stored.judge && ids.has(stored.judge) ? stored.judge : modelOptions.defaults.judge
-  };
+  return Object.fromEntries(
+    debateStepModelKeys.map((key) => [
+      key,
+      stored[key] && ids.has(stored[key]) ? stored[key] : modelOptions.defaults[key]
+    ])
+  ) as ModelSelections;
 }
 
 function readStoredUserPreferences(): UserPreferences {
@@ -1748,6 +1752,11 @@ function QuestionBanner({
       <div className="mt-1 text-lg leading-snug text-ink">
         {literalQuestionText(live.subject)}
       </div>
+      {latestEvidenceDate(live.sources) ? (
+        <div className="mt-1 text-[11px] font-semibold text-mud/55">
+          Sources published through {latestEvidenceDate(live.sources)}
+        </div>
+      ) : null}
       {!showStartSequence || showSlowWait ? (
         showSlowWait ? (
           <div className="mt-4 rounded-xl border border-leaf/25 bg-white/55 p-3 shadow-sm" aria-live="polite">
@@ -1781,6 +1790,20 @@ function QuestionBanner({
       ) : null}
     </section>
   );
+}
+
+function latestEvidenceDate(sources: EvidenceSource[]): string | null {
+  const timestamps = sources
+    .map((source) => (source.publishedAt ? new Date(source.publishedAt).getTime() : Number.NaN))
+    .filter(Number.isFinite);
+  if (timestamps.length === 0) return null;
+
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC"
+  }).format(new Date(Math.max(...timestamps)));
 }
 
 function froglingsStageCopy(
@@ -2176,13 +2199,21 @@ function Bubble({
                 href={chip.url}
                 target="_blank"
                 rel="noreferrer"
-                className={`inline-flex max-w-full items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold transition ${
+                title={`${chip.label}${chip.detail ? ` — ${chip.detail}` : ""}`}
+                className={`inline-flex max-w-full items-center gap-1.5 rounded-lg border px-2 py-1 text-[10px] font-bold transition ${
                   isPro
                     ? "border-leaf/25 bg-white/40 text-pond hover:bg-white/70"
                     : "border-berry/20 bg-white/45 text-berry hover:bg-white/75"
                 }`}
               >
-                <span className="truncate">{chip.label}</span>
+                <span className="min-w-0">
+                  <span className="block truncate">{chip.label}</span>
+                  {chip.detail ? (
+                    <span className="block truncate text-[9px] font-semibold opacity-65">
+                      {chip.detail}
+                    </span>
+                  ) : null}
+                </span>
                 <ExternalLink className="h-2.5 w-2.5 shrink-0" aria-hidden="true" />
               </a>
             ))}
