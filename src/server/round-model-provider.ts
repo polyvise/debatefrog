@@ -56,10 +56,11 @@ export class RoundModelLlmProvider implements LlmProvider {
       repaired.data,
       repairedRequest.prompt
     );
+    const blockingIssues = remainingIssues.filter(isBlockingSemanticIssue);
 
-    if (remainingIssues.length > 0) {
+    if (blockingIssues.length > 0) {
       throw new Error(
-        `Generated ${request.schemaName} failed semantic validation: ${remainingIssues.join(" ")}`
+        `Generated ${request.schemaName} failed semantic validation: ${blockingIssues.join(" ")}`
       );
     }
 
@@ -95,6 +96,17 @@ export class RoundModelLlmProvider implements LlmProvider {
     this.providers.set(model, provider);
     return provider;
   }
+}
+
+function isBlockingSemanticIssue(issue: string): boolean {
+  // Detail and repetition are quality targets: they should prompt one rewrite,
+  // but a model ignoring that stylistic repair must not discard the whole
+  // debate. Structural, factual-integrity, identity, and completeness failures
+  // remain fatal after repair.
+  return !(
+    issue.includes("needs more detail") ||
+    issue === "Comeback must answer directly instead of restating the opponent's question."
+  );
 }
 
 export function stepForRole(role: string): DebateStepModelKey {
