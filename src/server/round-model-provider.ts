@@ -142,6 +142,9 @@ export function semanticOutputIssues(
   data: unknown,
   prompt: string
 ): string[] {
+  if (schemaName === "finalSummaryOutput") {
+    return finalSummaryIssues(data);
+  }
   if (schemaName !== "debateTurnOutput") return [];
 
   const output = data as StructuredTurnOutput;
@@ -219,6 +222,37 @@ export function semanticOutputIssues(
   }
 
   return [...new Set(issues)];
+}
+
+function finalSummaryIssues(data: unknown): string[] {
+  if (!isRecord(data)) return ["Return a final summary object."];
+  const issues: string[] = [];
+  const headline = typeof data.headline === "string" ? data.headline.trim() : "";
+  const recommendation =
+    typeof data.recommendation === "string" ? data.recommendation.trim() : "";
+
+  if (!headline) issues.push("Final summary needs a headline.");
+  if (headline.length > 120) issues.push("Headline must be 120 characters or fewer.");
+  if (!recommendation) issues.push("Final summary needs a recommendation.");
+  if (recommendation.length > 320) {
+    issues.push("Recommendation must be 320 characters or fewer; rewrite it instead of truncating it.");
+  }
+  if (recommendation && !/[.!?][\])}'\"]*$/.test(recommendation)) {
+    issues.push("Recommendation must end with a complete sentence.");
+  }
+
+  for (const key of [
+    "strongestPro",
+    "strongestCon",
+    "unresolvedUncertainties",
+    "whatWouldChangeMind"
+  ]) {
+    if (data[key] !== undefined && !Array.isArray(data[key])) {
+      issues.push(`${key} must be an array of concise strings.`);
+    }
+  }
+
+  return issues;
 }
 
 function rulesForSchemaAndRound(schemaName: string, round: unknown): string[] {

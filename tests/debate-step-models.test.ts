@@ -105,4 +105,21 @@ describe("Debatefrog generation guardrails", () => {
 
     expect(issues).toEqual([]);
   });
+
+  it("requires the final recommendation to fit the public summary contract", () => {
+    const issues = semanticOutputIssues(
+      "finalSummaryOutput",
+      {
+        headline: "A clear result",
+        recommendation: `${"This explanation is too long. ".repeat(15)}`,
+        strongestPro: [],
+        strongestCon: [],
+        unresolvedUncertainties: [],
+        whatWouldChangeMind: []
+      },
+      "{}"
+    );
+
+    expect(issues.join(" ")).toContain("320 characters or fewer");
+  });
 });

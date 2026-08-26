@@ -212,6 +212,14 @@ export async function startDebate(input: DebatefrogRequest): Promise<StartDebate
       scheduleBusCleanup(record.id);
       return completed;
     } catch (error) {
+      console.error("[debatefrog.run.failed]", {
+        debateId: record.id,
+        name: error instanceof Error ? error.name : "UnknownError",
+        message:
+          error instanceof Error
+            ? error.message.replace(/sk-or-v1-[a-zA-Z0-9_-]+/g, "[redacted-api-key]").slice(0, 1000)
+            : "Unknown debate workflow failure."
+      });
       const failedSnapshot = modelSnapshotFromError(error);
       if (failedSnapshot) {
         bus.emit({ kind: "model_snapshot", snapshot: failedSnapshot });
