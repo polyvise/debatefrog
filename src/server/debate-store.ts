@@ -134,6 +134,9 @@ function buildSeedRecord(input: DebatefrogRequest): {
   const stepModels = resolveDebateStepModels(requestedStepModels, defaults);
   const config: DebateRuntimeConfig = {
     ...baseConfig,
+    // Debatefrog's public transcript promises four frog rounds. Do not let a
+    // legacy shared-core default silently omit Closing / Last Word.
+    maxRounds: 4,
     quickModel: stepModels.opening,
     deepModel: stepModels.rebuttal,
     // Team metadata has one model field per frog. Opening is the least
