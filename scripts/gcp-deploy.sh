@@ -31,7 +31,7 @@ IMAGE="$REGION-docker.pkg.dev/$PROJECT_ID/$ARTIFACT_REPO/$SERVICE:$SHORT_SHA"
 
 gcloud builds submit \
   --config cloudbuild.deploy.yaml \
-  --substitutions "_IMAGE=$IMAGE" \
+  --substitutions "_IMAGE=$IMAGE,_DEPLOY_CHANNEL=$CHANNEL" \
   --project "$PROJECT_ID"
 
 gcloud run deploy "$SERVICE" \
