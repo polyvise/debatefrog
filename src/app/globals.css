@@ -1040,9 +1040,14 @@ select:focus-visible {
   .pt-pad-judge .pt-frog-wrap { width: 76px; }
   .pt-lily { width: 120px; height: 30px; }
   .pt-pad-judge .pt-lily { width: 104px; }
-  .pt-bubble { width: min(270px, 62%); top: 12%; }
+  /* Both frogs' bubbles can be on screen together now (Yes Frog's
+     comment stays up while No Frog's types out), and the narrow mobile
+     width means side-by-side bubbles would overlap — stack them
+     vertically instead, with enough of a gap for a full-length Yes
+     Frog bubble to clear before No Frog's begins. */
+  .pt-bubble { width: min(270px, 62%); top: 10%; }
   .pt-bubble-pro { left: 3%; }
-  .pt-bubble-con { right: 3%; }
+  .pt-bubble-con { right: 3%; top: 48%; }
   .pt-plaque { font-size: 13px; padding: 6px 16px; }
   .pt-reeds { width: 130px; height: 170px; }
   .pt-seat { width: 92px; }

@@ -9,15 +9,17 @@
  * water — while the three frogs perform:
  *
  *   - preshow: frogs at their pads, intro music, "collecting facts"
- *   - debating: one turn at a time; the speaking frog's mouth chatters
- *     and throat sac pulses with the typewriter, ripples spread from
- *     its lily pad, and its speech appears in a storybook bubble
+ *   - debating: one round at a time. Yes Frog's turn types out first;
+ *     once it's done it stays put while No Frog's turn types out beside
+ *     it, so both comments are visible together. Once both are done the
+ *     scene holds for a couple seconds before the next round begins.
  *   - judging: the pond quiets while the judge frog thinks
  *   - verdict: the lily-pad seesaw tips toward the winner, petals
  *     fall, and confidence fills a water jar
  *
- * Turn pacing is sequential (one bubble at a time) rather than the
- * classic view's per-round pairs, so the scene reads like a play.
+ * Pacing is per round (a pro/con pair held together, then a pause)
+ * rather than the classic view's static cards, so the scene reads like
+ * a play while still giving a reader time to catch up between rounds.
  */
 
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
@@ -30,18 +32,27 @@ import {
   friendlyRound,
   froglingsBubbleText,
   froglingsFrogName,
+  froglingsTheaterCaption,
   froglingsVerdictCopy,
   hasAllDebateTurns,
-  literalQuestionText,
-  nextExpectedFrogSide,
-  orderedFroglingsTurns
+  literalQuestionText
 } from "@/lib/froglings-text";
 import type { FroglingsLiveState } from "@/components/froglings-workspace";
-import type { RoundTurn, Scorecard } from "@polyvise/core/debate/types";
+import type { DebateRound, RoundTurn, Scorecard } from "@polyvise/core/debate/types";
 
-const TURN_HOLD_MS = 1400;
+/** Debate rounds in performance order (judge_review/synthesis aren't staged). */
+const ROUND_ORDER: DebateRound[] = ["opening", "cross_examination", "rebuttal", "closing"];
 
-type TheaterPhase = "preshow" | "debating" | "waiting" | "judging" | "verdict" | "failed";
+/** Read-along pace for theater captions — gentler than SlowPrint's default
+ *  ~70 chars/sec, since a bubble here disappears at the end of the round
+ *  instead of staying on screen the way classic view's cards do. */
+const THEATER_TICK_MS = 20;
+
+/** How long both comments hold on screen, fully typed, before the next
+ *  round begins — long enough to reread both without feeling rushed. */
+const ROUND_HOLD_MS = 2600;
+
+type TheaterPhase = "preshow" | "debating" | "judging" | "verdict" | "failed";
 
 type VerdictTilt = "yes" | "no" | "level";
 
@@ -70,34 +81,40 @@ function verdictBannerLabel(tilt: VerdictTilt): string {
  *   Tough Questions — the listener squints at the tricky question.
  *   Comeback        — the speaker goes smug; the listener's eyes dart.
  *   Last Word       — both debaters beam, standing tall.
- *   Waiting/judging — the composing frog (or judge) looks up, thinking.
+ *   Judging         — the judge looks up, thinking.
+ *
+ * `activeSide` is whichever frog currently "has the floor" for
+ * reaction purposes — Yes Frog while its comment is out (typing or
+ * freshly finished), No Frog from the moment Yes Frog wraps up (even
+ * before No Frog's own bubble appears, so it already reads as
+ * reacting) through the end of the round.
  */
 function frogExpression(
   side: "pro" | "con" | "judge",
   phase: TheaterPhase,
-  currentTurn: RoundTurn | null,
-  waitingSide: "pro" | "con" | null
+  round: DebateRound | null,
+  activeSide: "pro" | "con" | null
 ): TheaterFrogExpression {
   if (phase === "judging") return side === "judge" ? "think" : "idle";
-  if (phase === "waiting") return side === waitingSide ? "think" : "idle";
-  if (phase === "debating" && currentTurn && side !== "judge") {
-    if (currentTurn.round === "closing") return "proud";
-    const isSpeaker = currentTurn.side === side;
-    if (currentTurn.round === "rebuttal") return isSpeaker ? "smug" : "dart";
-    if (currentTurn.round === "cross_examination" && !isSpeaker) return "squint";
-  }
+  if (side === "judge" || phase !== "debating" || !round) return "idle";
+  if (round === "closing") return "proud";
+  if (!activeSide) return "idle";
+  const isActive = side === activeSide;
+  if (round === "rebuttal") return isActive ? "smug" : "dart";
+  if (round === "cross_examination" && !isActive) return "squint";
   return "idle";
 }
 
 export function PondTheater({ live }: { live: FroglingsLiveState }) {
   const sounds = useContext(FrogSoundsContext);
-  const turns = useMemo(() => orderedFroglingsTurns(live.turns), [live.turns]);
-  const [playedCount, setPlayedCount] = useState(0);
+  const [roundIndex, setRoundIndex] = useState(0);
+  const [proDone, setProDone] = useState(false);
   const [typingSide, setTypingSide] = useState<"pro" | "con" | null>(null);
   const advanceTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
-    setPlayedCount(0);
+    setRoundIndex(0);
+    setProDone(false);
     setTypingSide(null);
   }, [live.debateId]);
 
@@ -107,32 +124,57 @@ export function PondTheater({ live }: { live: FroglingsLiveState }) {
     };
   }, []);
 
-  const handleTurnComplete = useCallback(() => {
+  const handleProComplete = useCallback(() => {
+    setProDone(true);
+  }, []);
+
+  // No Frog finishing is the cue for the whole round: hold both
+  // comments on screen a beat, then clear them and move to the next
+  // round.
+  const handleConComplete = useCallback(() => {
     if (advanceTimerRef.current !== null) window.clearTimeout(advanceTimerRef.current);
     advanceTimerRef.current = window.setTimeout(() => {
       advanceTimerRef.current = null;
-      setPlayedCount((count) => count + 1);
-    }, TURN_HOLD_MS);
+      setRoundIndex((index) => index + 1);
+      setProDone(false);
+      setTypingSide(null);
+    }, ROUND_HOLD_MS);
   }, []);
 
-  const currentTurn: RoundTurn | null = turns[playedCount] ?? null;
-  const allTurnsPlayed = turns.length > 0 && playedCount >= turns.length;
+  const currentRound: DebateRound | null = ROUND_ORDER[roundIndex] ?? null;
+  const roundTurns = useMemo(
+    () => (currentRound ? live.turns.filter((turn) => turn.round === currentRound) : []),
+    [live.turns, currentRound]
+  );
+  const proTurn = roundTurns.find((turn) => turn.side === "pro") ?? null;
+  const conTurn = roundTurns.find((turn) => turn.side === "con") ?? null;
+
+  const allRoundsHeld = roundIndex >= ROUND_ORDER.length;
   const hasVerdict = Boolean(live.summary && live.scorecard);
   const debateBroke = live.status === "failed" || live.status === "partial";
+  // The debate ended without ever producing a turn this round is
+  // waiting on — don't sit forever showing a "thinking" bubble that
+  // will never resolve.
+  const roundStuck = live.done && currentRound !== null && (!proTurn || (proDone && !conTurn));
 
-  const phase: TheaterPhase = debateBroke && !currentTurn
-    ? "failed"
-    : allTurnsPlayed && hasVerdict
-      ? "verdict"
-      : allTurnsPlayed && hasAllDebateTurns(live.turns)
-        ? "judging"
-        : currentTurn
-          ? "debating"
-          : turns.length > 0 || live.status === "debating"
-            ? "waiting"
+  const phase: TheaterPhase =
+    debateBroke && (live.turns.length === 0 || roundStuck)
+      ? "failed"
+      : allRoundsHeld && hasVerdict
+        ? "verdict"
+        : allRoundsHeld && hasAllDebateTurns(live.turns)
+          ? "judging"
+          : live.turns.length > 0 || live.status === "debating"
+            ? "debating"
             : "preshow";
 
   const isPreshow = phase === "preshow";
+  const proThinking = phase === "debating" && !proTurn;
+  const conThinking = phase === "debating" && proDone && !conTurn;
+  // Whichever frog currently "has the floor": Yes Frog until it wraps
+  // up, then No Frog for the rest of the round (even the moment before
+  // its own bubble appears, so it already reads as reacting).
+  const activeSide: "pro" | "con" | null = phase === "debating" ? (proDone ? "con" : "pro") : null;
 
   // Soft music bed while the stage warms up, same cue the classic splash uses.
   useEffect(() => {
@@ -159,9 +201,9 @@ export function PondTheater({ live }: { live: FroglingsLiveState }) {
     verdictCroakRef.current = false;
   }, [live.debateId]);
 
-  const waitingSide = phase === "waiting" ? nextExpectedFrogSide(live.turns) : null;
   const speakingSide = phase === "debating" ? typingSide : null;
   const tilt = live.scorecard ? verdictTilt(live.scorecard.recommendation) : "level";
+  const allTurns = live.turns;
 
   return (
     <div className="mt-6 space-y-4">
@@ -174,7 +216,7 @@ export function PondTheater({ live }: { live: FroglingsLiveState }) {
         <PondScenery />
 
         <div className="pt-plaque" aria-live="polite">
-          <PlaqueCopy phase={phase} live={live} currentTurn={currentTurn} />
+          <PlaqueCopy phase={phase} live={live} round={currentRound} />
         </div>
 
         {phase === "verdict" && live.scorecard ? (
@@ -184,37 +226,52 @@ export function PondTheater({ live }: { live: FroglingsLiveState }) {
             <PadGroup
               side="pro"
               speaking={speakingSide === "pro"}
-              thinking={waitingSide === "pro" || (isPreshow && !debateBroke)}
-              expression={frogExpression("pro", phase, currentTurn, waitingSide)}
+              thinking={proThinking || (isPreshow && !debateBroke)}
+              expression={frogExpression("pro", phase, currentRound, activeSide)}
             />
             <PadGroup
               side="judge"
               speaking={phase === "judging"}
               thinking={false}
-              expression={frogExpression("judge", phase, currentTurn, waitingSide)}
+              expression={frogExpression("judge", phase, currentRound, activeSide)}
             />
             <PadGroup
               side="con"
               speaking={speakingSide === "con"}
-              thinking={waitingSide === "con" || (isPreshow && !debateBroke)}
-              expression={frogExpression("con", phase, currentTurn, waitingSide)}
+              thinking={conThinking || (isPreshow && !debateBroke)}
+              expression={frogExpression("con", phase, currentRound, activeSide)}
             />
           </div>
         )}
 
-        {phase === "debating" && currentTurn ? (
-          <TheaterBubble
-            key={currentTurn.id}
-            turn={currentTurn}
-            live={live}
-            onTypingChange={(typing) =>
-              setTypingSide(typing && currentTurn.side !== "neutral" ? currentTurn.side : null)
-            }
-            onComplete={handleTurnComplete}
-          />
+        {phase === "debating" ? (
+          <>
+            {proTurn ? (
+              <TheaterBubble
+                key={proTurn.id}
+                turn={proTurn}
+                live={live}
+                onTypingChange={(typing) => setTypingSide(typing ? "pro" : null)}
+                onComplete={handleProComplete}
+              />
+            ) : (
+              <ThinkingBubble side="pro" />
+            )}
+            {proDone ? (
+              conTurn ? (
+                <TheaterBubble
+                  key={conTurn.id}
+                  turn={conTurn}
+                  live={live}
+                  onTypingChange={(typing) => setTypingSide(typing ? "con" : null)}
+                  onComplete={handleConComplete}
+                />
+              ) : (
+                <ThinkingBubble side="con" />
+              )
+            ) : null}
+          </>
         ) : null}
-
-        {phase === "waiting" && waitingSide ? <ThinkingBubble side={waitingSide} /> : null}
 
         {phase === "failed" ? (
           <div className="pt-failed" role="alert">
@@ -225,7 +282,7 @@ export function PondTheater({ live }: { live: FroglingsLiveState }) {
 
       {phase === "verdict" && live.scorecard ? <VerdictCard live={live} tilt={tilt} /> : null}
 
-      {allTurnsPlayed && turns.length > 0 ? <Transcript live={live} turns={turns} /> : null}
+      {allRoundsHeld && allTurns.length > 0 ? <Transcript live={live} turns={allTurns} /> : null}
     </div>
   );
 }
@@ -426,7 +483,7 @@ function TheaterBubble({
 }) {
   const side = turn.side === "con" ? "con" : "pro";
   const sounds = useContext(FrogSoundsContext);
-  const content = froglingsBubbleText(turn);
+  const content = froglingsTheaterCaption(turn);
   const sourceChips = buildFroglingsSourceChips(turn.sourceIds, live.sources);
 
   // Frog-speak: one voice blip per revealed vowel, so the croak-voice
@@ -442,6 +499,7 @@ function TheaterBubble({
       <p className="pt-bubble-text">
         <SlowPrint
           text={content}
+          tickMs={THEATER_TICK_MS}
           onTypingChange={onTypingChange}
           onComplete={onComplete}
           onProgress={handleProgress}
@@ -484,14 +542,14 @@ function ThinkingBubble({ side }: { side: "pro" | "con" }) {
 function PlaqueCopy({
   phase,
   live,
-  currentTurn
+  round
 }: {
   phase: TheaterPhase;
   live: FroglingsLiveState;
-  currentTurn: RoundTurn | null;
+  round: DebateRound | null;
 }) {
-  if (phase === "debating" && currentTurn) {
-    const meta = friendlyRound[currentTurn.round];
+  if (phase === "debating" && round) {
+    const meta = friendlyRound[round];
     const [roundLabel, roundName] = meta.title.split(" — ");
     return (
       <>
@@ -503,7 +561,6 @@ function PlaqueCopy({
   if (phase === "verdict") return <b>The verdict</b>;
   if (phase === "judging") return <>The judge frog is thinking…</>;
   if (phase === "failed") return <>Intermission — the frogs slipped</>;
-  if (phase === "waiting") return <>The frogs are debating…</>;
   if (live.status === "researching") return <>The frogs are collecting facts…</>;
   return <>The lily pad stage is lighting up…</>;
 }

@@ -87,8 +87,28 @@ export function nextExpectedFrogSide(turns: RoundTurn[]): "pro" | "con" {
   return count % 2 === 0 ? "pro" : "con";
 }
 
+/** Shared cleanup before a turn's content is cut down to bubble length. */
+function preprocessDebateTurn(turn: RoundTurn): string {
+  return stripRhetoricalOpener(simplifyForKids(stripSpeakerPrefix(turn.content, turn.agentName)));
+}
+
+/**
+ * Debate turns (especially cross-examination and rebuttal) routinely
+ * open by addressing the other frog directly — "My opponent, I
+ * disagree because...". The bubble is already anchored to a named
+ * frog, so the address adds reading time without adding meaning. Only
+ * the comma-gated vocative form is stripped ("My opponent, ..."); a
+ * possessive subject ("My opponent's case...") is left alone, since
+ * removing it would orphan the sentence.
+ */
+function stripRhetoricalOpener(text: string): string {
+  const stripped = text.replace(/^my opponent,\s*/i, "");
+  if (stripped === text || stripped.length === 0) return text;
+  return stripped.charAt(0).toUpperCase() + stripped.slice(1);
+}
+
 export function froglingsBubbleText(turn: RoundTurn) {
-  const text = simplifyForKids(stripSpeakerPrefix(turn.content, turn.agentName));
+  const text = preprocessDebateTurn(turn);
   const sentences = text.match(/[^.!?]+[.!?]+|[^.!?]+$/g)?.map((sentence) => sentence.trim()) ?? [text];
   const picked: string[] = [];
 
@@ -101,6 +121,27 @@ export function froglingsBubbleText(turn: RoundTurn) {
 
   const compressed = picked.length > 0 ? picked.join(" ") : text;
   return trimAtWord(compressed, 320);
+}
+
+/**
+ * A shorter, punchier caption for the pond theater's speech bubbles —
+ * one sentence, with a second only folded in when the first is quite
+ * short. The classic card view and the "read the whole debate"
+ * transcript keep the fuller froglingsBubbleText; this is a stage
+ * caption meant to be read in one breath while it types, not the
+ * complete record.
+ */
+export function froglingsTheaterCaption(turn: RoundTurn) {
+  const text = preprocessDebateTurn(turn);
+  const sentences =
+    text.match(/[^.!?]+[.!?]+|[^.!?]+$/g)?.map((sentence) => sentence.trim()).filter(Boolean) ?? [text];
+
+  const first = sentences[0] ?? text;
+  const second = sentences[1];
+  const shouldAddSecond = Boolean(second) && first.length < 50 && first.length + (second?.length ?? 0) <= 150;
+  const compressed = shouldAddSecond ? `${first} ${second}` : first;
+
+  return trimAtWord(compressed, 150);
 }
 
 export function stripSpeakerPrefix(content: string, agentName: string) {
@@ -170,7 +211,12 @@ export function trimAtWord(content: string, maxLength: number) {
   if (content.length <= maxLength) return content;
   const slice = content.slice(0, maxLength).trim();
   const lastSpace = slice.lastIndexOf(" ");
-  const trimmed = slice.slice(0, lastSpace > 180 ? lastSpace : maxLength).replace(/[,:;.-]+$/, "");
+  // Only cut at the last space if it isn't so early that we'd lose most
+  // of the budget — otherwise fall back to a hard cut at maxLength.
+  // Proportional to maxLength so this works for any caller's cap, not
+  // just the original 320-char one it was tuned against.
+  const minWordBoundary = Math.floor(maxLength * 0.55);
+  const trimmed = slice.slice(0, lastSpace > minWordBoundary ? lastSpace : maxLength).replace(/[,:;.-]+$/, "");
   return `${trimmed}.`;
 }
 
