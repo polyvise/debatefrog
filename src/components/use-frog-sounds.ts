@@ -27,7 +27,7 @@
  *    and ducks it on `stop(side)`.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { createContext, useCallback, useEffect, useRef, useState } from "react";
 import {
   audioClips,
   type AudioClip,
@@ -35,6 +35,34 @@ import {
 } from "@/lib/audio-manifest";
 
 type Side = "pro" | "con" | "judge";
+
+// -------------------------------------------------------------------------
+// Shared context so any live renderer (classic bubbles or the pond
+// theater) can trigger play/stop without prop-drilling. The workspace
+// owns the hook instance and provides it; children consume.
+// -------------------------------------------------------------------------
+
+export type FrogSoundsCtx = {
+  ready: boolean;
+  play: (side: Side, options?: { random?: boolean }) => void;
+  stop: (side: Side) => void;
+  beep: (options: { frequency: number; durationMs: number; delayMs?: number; gain?: number }) => void;
+  blip: (side: Side) => void;
+  startIntro: () => void;
+  stopIntro: () => void;
+};
+
+export const noopSounds: FrogSoundsCtx = {
+  ready: false,
+  play: () => {},
+  stop: () => {},
+  beep: () => {},
+  blip: () => {},
+  startIntro: () => {},
+  stopIntro: () => {}
+};
+
+export const FrogSoundsContext = createContext<FrogSoundsCtx>(noopSounds);
 
 const MUTE_STORAGE_KEY = "froglings:muted";
 
@@ -103,6 +131,12 @@ interface FrogSoundsApi {
   stop: (side: Side) => void;
   /** Play a short synthesized cue. No-op if muted or not unlocked. */
   beep: (options: { frequency: number; durationMs: number; delayMs?: number; gain?: number }) => void;
+  /**
+   * One tiny "frog-speak" syllable blip for a side — the Animal
+   * Crossing-style voice the pond theater plays while text types.
+   * Internally throttled so callers can fire it per character.
+   */
+  blip: (side: Side) => void;
   /** Start the soft generated music bed for the debate splash. */
   startIntro: () => void;
   /** Fade out and stop the generated music bed. */
@@ -383,6 +417,55 @@ export function useFrogSounds(): FrogSoundsApi {
     [muted]
   );
 
+  // Frog-speak voices: each side gets a recognizable register — Yes low
+  // and warm, No bright and quick, Judge slow and stately. A short
+  // downward pitch bend per blip keeps it croaky rather than beepy, and
+  // per-side throttling means callers can fire it every character.
+  const lastBlipAtRef = useRef<Record<Side, number>>({ pro: 0, con: 0, judge: 0 });
+
+  const blip = useCallback(
+    (side: Side) => {
+      const ctx = ctxRef.current;
+      const master = masterGainRef.current;
+      if (!ctx || !master) return;
+      if (muted) return;
+
+      const wallNow = performance.now();
+      const minGapMs = side === "judge" ? 120 : 72;
+      if (wallNow - lastBlipAtRef.current[side] < minGapMs) return;
+      lastBlipAtRef.current[side] = wallNow;
+
+      const base = side === "pro" ? 175 : side === "con" ? 295 : 130;
+      const start = base * (0.92 + Math.random() * 0.16);
+      const durationS = side === "judge" ? 0.13 : 0.085;
+      const peakGain = side === "judge" ? 0.1 : 0.08;
+      const startAt = ctx.currentTime;
+      const endAt = startAt + durationS;
+
+      const osc = ctx.createOscillator();
+      const envelope = ctx.createGain();
+      osc.type = "triangle";
+      osc.frequency.setValueAtTime(start * 1.15, startAt);
+      osc.frequency.exponentialRampToValueAtTime(start * 0.78, startAt + durationS * 0.8);
+      envelope.gain.setValueAtTime(0.0001, startAt);
+      envelope.gain.exponentialRampToValueAtTime(peakGain, startAt + 0.012);
+      envelope.gain.exponentialRampToValueAtTime(0.0001, endAt);
+
+      osc.connect(envelope).connect(master);
+      osc.start(startAt);
+      osc.stop(endAt + 0.02);
+      osc.onended = () => {
+        try {
+          osc.disconnect();
+          envelope.disconnect();
+        } catch {
+          // already disconnected
+        }
+      };
+    },
+    [muted]
+  );
+
   const stopIntro = useCallback(() => {
     const ctx = ctxRef.current;
     const loop = introLoopRef.current;
@@ -473,5 +556,5 @@ export function useFrogSounds(): FrogSoundsApi {
     };
   }, []);
 
-  return { ready, muted, toggleMute, unlock, play, stop, beep, startIntro, stopIntro };
+  return { ready, muted, toggleMute, unlock, play, stop, beep, blip, startIntro, stopIntro };
 }
