@@ -6,9 +6,17 @@ steps:
       - build
       - --secret
       - id=npm_token,env=NPM_TOKEN
+      - --build-arg
+      - NEXT_PUBLIC_DEPLOY_CHANNEL=${_DEPLOY_CHANNEL}
       - --tag
       - ${_IMAGE}
       - .
+
+# NEXT_PUBLIC_DEPLOY_CHANNEL is inlined into the client bundle at build time,
+# so it is baked into the image here rather than only set at runtime. This
+# makes images channel-specific: preview and production must not share a tag.
+substitutions:
+  _DEPLOY_CHANNEL: production
 
 availableSecrets:
   secretManager:
