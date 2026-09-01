@@ -1,12 +1,12 @@
 steps:
   - name: gcr.io/cloud-builders/docker
-    secretEnv:
-      - NPM_TOKEN
     env:
       # Required for the Dockerfile's `# syntax=` frontend, `docker build
       # --secret`, and `--mount=type=secret`. The cloud-builders/docker image
       # does not enable BuildKit by default.
       - DOCKER_BUILDKIT=1
+    secretEnv:
+      - NPM_TOKEN
     args:
       - build
       - --secret

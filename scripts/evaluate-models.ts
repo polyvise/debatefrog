@@ -10,6 +10,7 @@ import {
   type DebateRun,
   type ModelSnapshot
 } from "@polyvise/core";
+import { RoundModelLlmProvider } from "@/server/round-model-provider";
 
 type EvalQuestion = {
   id: string;
@@ -455,7 +456,16 @@ async function generateDebateRun({
       }
     },
     undefined,
-    { config: modelConfig }
+    {
+      config: modelConfig,
+      provider: new RoundModelLlmProvider(modelConfig, {
+        opening: modelId,
+        crossExamination: modelId,
+        rebuttal: modelId,
+        closing: modelId,
+        judge: modelId
+      })
+    }
   );
 }
 
@@ -639,6 +649,13 @@ async function scoreRun({
     readability: scoreReadability(words),
     decisiveness: scoreDecisiveness(run),
     debateCraft: scoreDebateCraft(run),
+    turnCompleteness: scoreTurnCompleteness(run),
+    questionCompliance: scoreQuestionCompliance(run),
+    speakerIdentity: scoreSpeakerIdentity(run),
+    roundNovelty: scoreRoundNovelty(run),
+    opponentRestatement: scoreOpponentRestatement(run),
+    metricCompatibility: scoreMetricCompatibility(run),
+    sourceIntegrity: scoreSourceIntegrity(run),
     specificity: clamp((uniqueWords.size / Math.max(words.length, 1)) * 150, 0, 100)
   };
   const quality =
@@ -745,7 +762,7 @@ async function judgeRunQuality({
     schemaName: "debatefrogModelQualityScore",
     jsonSchema: qualityJudgeOutputSchema,
     prompt: JSON.stringify({
-      task: "Score this Debatefrog debate output for real user-facing quality. Be skeptical of generic, shallow, circular, one-sided, or unsafe reasoning. Reward clear kid-friendly explanations, balanced debate, grounded use of evidence, and a decisive but well-qualified judge verdict.",
+      task: "Score this Debatefrog debate output for real user-facing quality. Be skeptical of generic, shallow, circular, one-sided, repetitive, or unsafe reasoning. Reward clear kid-friendly explanations, balanced debate, grounded use of evidence, distinct jobs for each round, and a decisive but well-qualified judge verdict.",
       scoringInstructions: {
         overallQuality: "0 to 100. Use 50 for barely acceptable, 70 for solid, 85 for strong, 95 for excellent. Do not inflate scores just because the output is complete.",
         argumentQuality: "Do the YES and NO cases make meaningful, question-specific arguments rather than generic filler?",
@@ -753,7 +770,7 @@ async function judgeRunQuality({
         fairness: "Are both sides represented seriously, with no default YES or NO bias?",
         ageAppropriateClarity: "Would a middle-school user understand it without being talked down to?",
         decisiveness: "Does the judge choose YES or NO when one side is stronger and explain why?",
-        groundedness: "Does the verdict follow from the debate content rather than vibes or unsupported assertions? Penalize narrator voice, repeated restatements, unsupported 'studies show' language, and rebuttals that dodge cross-examination questions."
+        groundedness: "Does the verdict follow from the debate content rather than vibes or unsupported assertions? Penalize narrator voice, speaker/subject identity confusion, repeated opponent restatements, incompatible statistic comparisons, unsupported 'studies show' language, citations that do not support the attached claim, and rebuttals that dodge cross-examination questions."
       },
       question: question.question,
       questionPurpose: question.why,
@@ -853,6 +870,88 @@ function scoreDebateCraft(run: DebateRun) {
   const repetitionPenalty = repeatedLaterTurns(run) * 10;
 
   return clamp(100 - narratorPenalty - unsupportedResearchPenalty - weakRebuttalPenalty - repetitionPenalty, 0, 100);
+}
+
+function scoreTurnCompleteness(run: DebateRun) {
+  const invalid = run.turns.filter((turn) => {
+    const content = turn.content.trim();
+    return (
+      !/[.!?][\])}'\"]*$/.test(content) ||
+      /\b(?:and|because|while|from|to|of|the|a|an|\d+[.]?)$/i.test(content)
+    );
+  }).length;
+  return clamp(100 - invalid * 25, 0, 100);
+}
+
+function scoreQuestionCompliance(run: DebateRun) {
+  const questions = run.turns.filter((turn) => turn.round === "cross_examination");
+  if (questions.length === 0) return 0;
+  const valid = questions.filter((turn) => {
+    const marks = turn.content.match(/\?/g) ?? [];
+    return marks.length === 1 && /\?[\])}'\"]*$/.test(turn.content.trim());
+  }).length;
+  return (valid / questions.length) * 100;
+}
+
+function scoreSpeakerIdentity(run: DebateRun) {
+  const confused = run.turns.filter((turn) =>
+    /\b(?:my|our)\s+(?:approval|job approval|popularity|poll numbers?|vote share|presidency|election victory)\b/i.test(
+      turn.content
+    )
+  ).length;
+  return clamp(100 - confused * 35, 0, 100);
+}
+
+function scoreRoundNovelty(run: DebateRun) {
+  const similarities: number[] = [];
+  for (const side of ["pro", "con"] as const) {
+    const sideTurns = run.turns.filter((turn) => turn.side === side);
+    for (let index = 1; index < sideTurns.length; index += 1) {
+      const current = meaningfulTerms(sideTurns[index].content);
+      const previous = meaningfulTerms(sideTurns[index - 1].content);
+      const overlap = [...current].filter((term) => previous.has(term)).length;
+      similarities.push(overlap / Math.max(new Set([...current, ...previous]).size, 1));
+    }
+  }
+  if (similarities.length === 0) return 0;
+  const averageSimilarity = similarities.reduce((sum, value) => sum + value, 0) / similarities.length;
+  return clamp(100 - averageSimilarity * 120, 0, 100);
+}
+
+function scoreOpponentRestatement(run: DebateRun) {
+  const repetitive = run.turns.filter(
+    (turn) =>
+      turn.round === "rebuttal" &&
+      /^\s*(?:my opponent asks|the other frog (?:asks|says)|you asked (?:me )?(?:why|how|whether|what))/i.test(
+        turn.content
+      )
+  ).length;
+  return clamp(100 - repetitive * 35, 0, 100);
+}
+
+function scoreMetricCompatibility(run: DebateRun) {
+  const incompatible = run.turns.filter((turn) => {
+    const containsBoth =
+      /(?:approval|favorability).*(?:vote share|popular vote)|(?:vote share|popular vote).*(?:approval|favorability)/i.test(
+        turn.content
+      );
+    const explicitlyDistinguishes =
+      /(?:different|distinct|not (?:the same|comparable)|cannot compare|should not (?:compare|be compared)|apples?.*oranges?)/i.test(
+        turn.content
+      );
+    return containsBoth && !explicitlyDistinguishes;
+  }).length;
+  return clamp(100 - incompatible * 50, 0, 100);
+}
+
+function scoreSourceIntegrity(run: DebateRun) {
+  const accepted = new Set(
+    run.sources.filter((source) => source.status === "accepted").map((source) => source.id)
+  );
+  const citations = run.turns.flatMap((turn) => turn.sourceIds);
+  if (citations.length === 0) return 0;
+  const valid = citations.filter((sourceId) => accepted.has(sourceId)).length;
+  return (valid / citations.length) * 100;
 }
 
 function unsupportedResearchClaims(run: DebateRun) {

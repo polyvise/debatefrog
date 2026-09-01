@@ -26,10 +26,12 @@ html {
 body {
   margin: 0;
   min-height: 100vh;
+  /* Pond-water tones: mint shallows into pale aqua, with soft teal and
+     leaf glows instead of the old sun-yellow wash. */
   background:
-    radial-gradient(circle at 18% 14%, rgba(244, 201, 93, 0.32), transparent 26rem),
+    radial-gradient(circle at 18% 14%, rgba(127, 184, 176, 0.3), transparent 26rem),
     radial-gradient(circle at 82% 88%, rgba(68, 161, 95, 0.22), transparent 24rem),
-    linear-gradient(135deg, #e5f6df 0%, #fbf4d0 46%, #d5edf2 100%);
+    linear-gradient(135deg, #dcf1e3 0%, #d2ecea 46%, #cfe3ef 100%);
   color: var(--ink);
   font-family:
     ui-rounded, "Avenir Next", Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
@@ -410,4 +412,765 @@ select:focus-visible {
   .fun-frog-mouth.is-speaking {
     animation: none !important;
   }
+}
+
+/* -----------------------------------------------------------------------
+ * Pond theater — the full-scene "theater mode" renderer. All classes are
+ * prefixed pt- to stay clear of the classic view's styles. The stage is
+ * a deliberately dark dusk scene framed inside the light page.
+ * --------------------------------------------------------------------- */
+
+.pt-stage {
+  position: relative;
+  height: clamp(430px, 62vh, 560px);
+  overflow: hidden;
+  border-radius: 1.4rem;
+  background: linear-gradient(
+    #16283c 0%,
+    #4b3a5c 34%,
+    #a05a68 52%,
+    #f0a97a 66%,
+    #1b4450 66.2%,
+    #0e2530 100%
+  );
+  box-shadow:
+    0 26px 50px -26px rgba(6, 22, 30, 0.75),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+.pt-moon {
+  position: absolute;
+  top: 9%;
+  right: 12%;
+  width: 58px;
+  height: 58px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 40% 38%, #fff8e8, #f3ddab 60%, #e8c88f);
+  box-shadow:
+    0 0 36px 10px rgba(243, 221, 171, 0.33),
+    0 0 80px 26px rgba(243, 221, 171, 0.13);
+}
+
+.pt-star {
+  position: absolute;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: #f6ead2;
+  opacity: 0.7;
+  animation: pt-twinkle 3.6s ease-in-out infinite;
+}
+
+@keyframes pt-twinkle {
+  0%, 100% { opacity: 0.15; }
+  50% { opacity: 0.8; }
+}
+
+.pt-hills {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 33.4%;
+  height: 23%;
+  color: #33254a;
+  pointer-events: none;
+}
+
+.pt-hills svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.pt-water {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 34%;
+  background: linear-gradient(#2c5a63, #0e2530 80%);
+  pointer-events: none;
+}
+
+.pt-glint {
+  position: absolute;
+  height: 3px;
+  border-radius: 3px;
+  background: #7fb8b0;
+  opacity: 0.28;
+  animation: pt-glide 7s ease-in-out infinite alternate;
+}
+
+@keyframes pt-glide {
+  from { transform: translateX(-14px) scaleX(0.85); opacity: 0.14; }
+  to { transform: translateX(16px) scaleX(1.1); opacity: 0.34; }
+}
+
+.pt-reeds {
+  position: absolute;
+  bottom: 28%;
+  width: 190px;
+  height: 230px;
+  color: #141d2a;
+  opacity: 0.92;
+  pointer-events: none;
+}
+
+.pt-reeds-left { left: -30px; }
+.pt-reeds-right { right: -42px; transform: scaleX(-1); }
+
+.pt-reeds svg {
+  width: 100%;
+  height: 100%;
+  transform-origin: 50% 100%;
+  animation: pt-sway 6s ease-in-out infinite alternate;
+}
+
+.pt-reeds-right svg { animation-delay: 1.8s; }
+
+@keyframes pt-sway {
+  from { transform: rotate(-1.6deg); }
+  to { transform: rotate(1.8deg); }
+}
+
+.pt-firefly {
+  position: absolute;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #ffd98a;
+  box-shadow: 0 0 10px 3px rgba(255, 217, 138, 0.53);
+  animation:
+    pt-drift 9s ease-in-out infinite alternate,
+    pt-flicker 2.7s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes pt-drift {
+  from { transform: translate(0, 0); }
+  to { transform: translate(36px, -26px); }
+}
+
+@keyframes pt-flicker {
+  0%, 100% { opacity: 0.1; }
+  45% { opacity: 0.95; }
+}
+
+.pt-dragonfly {
+  position: absolute;
+  top: 22%;
+  left: -10%;
+  z-index: 4;
+  animation: pt-cross 17s linear infinite;
+  animation-delay: 3s;
+  pointer-events: none;
+}
+
+.pt-dragonfly svg { width: 52px; height: 32px; }
+
+.pt-dragonfly-wing {
+  animation: pt-buzz 0.12s linear infinite alternate;
+  transform-origin: 28px 12px;
+}
+
+@keyframes pt-buzz {
+  from { transform: scaleY(0.5); }
+  to { transform: scaleY(1.1); }
+}
+
+@keyframes pt-cross {
+  0% { transform: translate(0, 0); }
+  25% { transform: translate(28vw, -30px); }
+  50% { transform: translate(54vw, 10px); }
+  75% { transform: translate(80vw, -24px); }
+  100% { transform: translate(112vw, 0); }
+}
+
+/* --- frogs on pads ---------------------------------------------------- */
+
+.pt-troupe {
+  position: absolute;
+  inset: 0;
+}
+
+.pt-pad-group {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 180px;
+}
+
+.pt-pad-pro { left: 7%; bottom: 15%; }
+.pt-pad-con { right: 7%; bottom: 15%; }
+.pt-pad-judge {
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 24%;
+  width: 160px;
+}
+
+.pt-frog-wrap {
+  position: relative;
+  width: 120px;
+  margin-bottom: -14px;
+  z-index: 2;
+}
+
+.pt-pad-judge .pt-frog-wrap { width: 102px; }
+
+.pt-frog-wrap > .theater-frog {
+  display: block;
+  width: 100%;
+  height: auto;
+  animation: pt-bob 3.6s ease-in-out infinite alternate;
+}
+
+.pt-pad-con .pt-frog-wrap > .theater-frog { animation-delay: 1.2s; }
+.pt-pad-judge .pt-frog-wrap > .theater-frog { animation-delay: 2s; animation-duration: 4.4s; }
+.is-thinking .pt-frog-wrap > .theater-frog { animation-duration: 2.2s; }
+
+@keyframes pt-bob {
+  from { transform: translateY(0); }
+  to { transform: translateY(-7px); }
+}
+
+.pt-reflection {
+  position: absolute;
+  top: 99%;
+  left: 0;
+  width: 100%;
+  transform: scaleY(-1);
+  opacity: 0.16;
+  filter: blur(2px);
+  -webkit-mask-image: linear-gradient(transparent, #000 70%);
+  mask-image: linear-gradient(transparent, #000 70%);
+  pointer-events: none;
+}
+
+.pt-reflection .theater-frog {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.pt-lily {
+  width: 170px;
+  height: 42px;
+  z-index: 1;
+}
+
+.pt-lily-small {
+  width: 108px;
+  height: 27px;
+}
+
+.pt-pad-judge .pt-lily { width: 140px; }
+
+.pt-ripple {
+  position: absolute;
+  bottom: -8px;
+  left: 50%;
+  width: 150px;
+  height: 34px;
+  transform: translateX(-50%);
+  border: 2px solid #cfe8de;
+  border-radius: 50%;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.is-speaking-group .pt-ripple {
+  animation: pt-ripple 2.4s ease-out infinite;
+}
+
+@keyframes pt-ripple {
+  0% { opacity: 0.35; transform: translateX(-50%) scale(0.55); }
+  100% { opacity: 0; transform: translateX(-50%) scale(1.5); }
+}
+
+/* --- TheaterFrog rig animations --------------------------------------- */
+
+.theater-frog-eye {
+  animation: pt-blink 5.2s infinite;
+}
+
+@keyframes pt-blink {
+  0%, 90%, 100% { transform: scaleY(1); }
+  93%, 96% { transform: scaleY(0.06); }
+}
+
+.theater-frog-mouth-open {
+  transform: scaleY(0);
+}
+
+.theater-frog.is-speaking .theater-frog-mouth-open {
+  animation: pt-chatter 0.16s linear infinite alternate;
+}
+
+@keyframes pt-chatter {
+  from { transform: scaleY(0.15); }
+  to { transform: scaleY(1); }
+}
+
+.theater-frog.is-speaking .theater-frog-throat {
+  animation: pt-croak 0.34s ease-in-out infinite alternate;
+}
+
+@keyframes pt-croak {
+  from { transform: scale(1); }
+  to { transform: scale(1.45); }
+}
+
+/* --- plaque + bubbles -------------------------------------------------- */
+
+.pt-plaque {
+  position: absolute;
+  top: 4.5%;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 6;
+  max-width: min(88%, 460px);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  background: rgba(15, 32, 41, 0.85);
+  border: 1px solid #f0b46a;
+  color: #f6ead2;
+  border-radius: 999px;
+  padding: 7px 22px;
+  font-family: Georgia, "Times New Roman", serif;
+  font-style: italic;
+  font-size: 15px;
+  box-shadow: 0 8px 24px -8px rgba(0, 0, 0, 0.6);
+}
+
+.pt-plaque b {
+  color: #f0b46a;
+  font-style: normal;
+  font-weight: 600;
+}
+
+.pt-bubble {
+  position: absolute;
+  top: 14%;
+  z-index: 5;
+  width: min(320px, 40%);
+  background: #fffdf2;
+  color: #243027;
+  border-radius: 20px 22px 20px 4px;
+  padding: 13px 16px 11px;
+  box-shadow: 0 12px 28px -12px rgba(0, 0, 0, 0.65);
+}
+
+.pt-bubble::after {
+  content: "";
+  position: absolute;
+  bottom: -10px;
+  width: 20px;
+  height: 14px;
+  background: #fffdf2;
+}
+
+.pt-bubble-pro { left: 5%; }
+.pt-bubble-pro::after { left: 34px; clip-path: polygon(0 0, 100% 0, 20% 100%); }
+
+.pt-bubble-con {
+  right: 5%;
+  border-radius: 22px 20px 4px 20px;
+}
+.pt-bubble-con::after { right: 34px; clip-path: polygon(0 0, 100% 0, 80% 100%); }
+
+.pt-bubble-who {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  margin-bottom: 2px;
+}
+
+.pt-bubble-pro .pt-bubble-who { color: #2c6e45; }
+.pt-bubble-con .pt-bubble-who { color: #a03d56; }
+
+.pt-bubble-text {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.45;
+  font-weight: 600;
+  min-height: 3em;
+}
+
+.pt-bubble-sources {
+  margin-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.pt-source-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  border-radius: 8px;
+  border: 1px solid rgba(36, 48, 39, 0.18);
+  background: rgba(36, 48, 39, 0.05);
+  padding: 3px 8px;
+  font-size: 10px;
+  font-weight: 700;
+  color: #243027;
+  transition: background-color 160ms ease;
+}
+
+.pt-source-chip:hover { background: rgba(36, 48, 39, 0.12); }
+
+.pt-bubble-thinking { min-width: 130px; width: auto; }
+
+.pt-thinking-dots {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  min-height: 1.4em;
+}
+
+.pt-thinking-dots span {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: rgba(36, 48, 39, 0.55);
+  animation: pt-dots 1.2s ease-in-out infinite;
+}
+
+.pt-thinking-dots span:nth-child(2) { animation-delay: 0.18s; }
+.pt-thinking-dots span:nth-child(3) { animation-delay: 0.36s; }
+
+@keyframes pt-dots {
+  0%, 100% { opacity: 0.25; transform: translateY(0); }
+  40% { opacity: 1; transform: translateY(-3px); }
+}
+
+.pt-failed {
+  position: absolute;
+  left: 50%;
+  top: 42%;
+  transform: translate(-50%, -50%);
+  z-index: 7;
+  max-width: 78%;
+  background: rgba(15, 32, 41, 0.92);
+  border: 1px solid rgba(212, 95, 122, 0.6);
+  color: #f6ead2;
+  border-radius: 16px;
+  padding: 14px 18px;
+  font-size: 14px;
+  font-weight: 700;
+  text-align: center;
+}
+
+/* --- verdict scene ----------------------------------------------------- */
+
+.pt-verdict-scene {
+  position: absolute;
+  inset: 0;
+}
+
+.pt-verdict-banner {
+  position: absolute;
+  top: 13%;
+  left: 50%;
+  transform: translateX(-50%) scale(0.8);
+  z-index: 6;
+  text-align: center;
+  width: max-content;
+  max-width: 90%;
+  opacity: 0;
+  transition:
+    opacity 0.8s ease 0.9s,
+    transform 0.8s cubic-bezier(0.34, 1.5, 0.5, 1) 0.9s;
+}
+
+.is-settled .pt-verdict-banner {
+  opacity: 1;
+  transform: translateX(-50%) scale(1);
+}
+
+.pt-verdict-banner-sub {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(246, 234, 210, 0.75);
+}
+
+.pt-verdict-banner-ruling {
+  font-family: Georgia, "Times New Roman", serif;
+  font-style: italic;
+  font-size: clamp(26px, 4vw, 40px);
+  color: #f6ead2;
+  text-shadow: 0 4px 24px rgba(0, 0, 0, 0.65);
+}
+
+.pt-judge-perch {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 47%;
+  width: 96px;
+  z-index: 3;
+}
+
+.pt-judge-perch .theater-frog {
+  display: block;
+  width: 100%;
+  height: auto;
+  animation: pt-bob 4.4s ease-in-out infinite alternate;
+}
+
+.pt-seesaw {
+  position: absolute;
+  left: 50%;
+  bottom: 34%;
+  transform: translateX(-50%);
+  width: min(540px, 86%);
+  z-index: 2;
+}
+
+.pt-beam {
+  position: relative;
+  height: 14px;
+  border-radius: 8px;
+  background: linear-gradient(#7a5a3a, #4c3520);
+  transform-origin: center;
+  transition: transform 1.6s cubic-bezier(0.34, 1.4, 0.4, 1);
+}
+
+.is-settled.pt-tilt-yes .pt-beam { transform: rotate(-6.5deg); }
+.is-settled.pt-tilt-no .pt-beam { transform: rotate(6.5deg); }
+.is-settled.pt-tilt-level .pt-beam { transform: rotate(0deg); }
+
+.pt-seat {
+  position: absolute;
+  bottom: 8px;
+  width: 116px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.pt-seat .theater-frog {
+  display: block;
+  width: 76px;
+  height: auto;
+  margin-bottom: -8px;
+}
+
+.pt-seat-yes { left: -26px; }
+.pt-seat-no { right: -26px; }
+
+.pt-fulcrum {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: -64px;
+  width: 72px;
+  height: 70px;
+  background: linear-gradient(#5c4128, #39281a);
+  border-radius: 14px 14px 4px 4px;
+}
+
+.pt-petal {
+  position: absolute;
+  top: -24px;
+  border-radius: 12px 2px 12px 2px;
+  pointer-events: none;
+  animation: pt-fall linear forwards;
+}
+
+@keyframes pt-fall {
+  0% { transform: translate(0, 0) rotate(0); opacity: 1; }
+  100% {
+    transform: translate(var(--pt-petal-dx), 560px) rotate(var(--pt-petal-rot));
+    opacity: 0;
+  }
+}
+
+/* --- confidence jar (lives in the light verdict card) ------------------ */
+
+.pt-jar {
+  position: relative;
+  width: 84px;
+  height: 112px;
+  border-radius: 14px 14px 18px 18px;
+  overflow: hidden;
+  background: rgba(13, 79, 69, 0.08);
+  border: 1px solid rgba(95, 74, 56, 0.25);
+}
+
+.pt-jar-fill {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 0;
+  transition: height 1.8s cubic-bezier(0.3, 1, 0.4, 1);
+  background: linear-gradient(#7fc9c0, #2c7a72);
+}
+
+.pt-jar-pct {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-weight: 900;
+  font-size: 22px;
+  font-variant-numeric: tabular-nums;
+  color: var(--pond);
+  text-shadow: 0 1px 4px rgba(255, 253, 242, 0.7);
+}
+
+/* --- responsive -------------------------------------------------------- */
+
+@media (max-width: 720px) {
+  .pt-stage { height: clamp(420px, 68vh, 540px); }
+  .pt-pad-pro { left: 1%; bottom: 13%; }
+  .pt-pad-con { right: 1%; bottom: 13%; }
+  .pt-pad-group { width: 130px; }
+  .pt-frog-wrap { width: 88px; }
+  .pt-pad-judge { width: 120px; bottom: 23%; }
+  .pt-pad-judge .pt-frog-wrap { width: 76px; }
+  .pt-lily { width: 120px; height: 30px; }
+  .pt-pad-judge .pt-lily { width: 104px; }
+  /* Both frogs' bubbles can be on screen together now (Yes Frog's
+     comment stays up while No Frog's types out), and the narrow mobile
+     width means side-by-side bubbles would overlap — stack them
+     vertically instead, with enough of a gap for a full-length Yes
+     Frog bubble to clear before No Frog's begins. */
+  .pt-bubble { width: min(270px, 62%); top: 10%; }
+  .pt-bubble-pro { left: 3%; }
+  .pt-bubble-con { right: 3%; top: 48%; }
+  .pt-plaque { font-size: 13px; padding: 6px 16px; }
+  .pt-reeds { width: 130px; height: 170px; }
+  .pt-seat { width: 92px; }
+  .pt-seat .theater-frog { width: 62px; }
+  .pt-seat-yes { left: -16px; }
+  .pt-seat-no { right: -16px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pt-star,
+  .pt-glint,
+  .pt-reeds svg,
+  .pt-firefly,
+  .pt-dragonfly,
+  .pt-dragonfly-wing,
+  .pt-frog-wrap > .theater-frog,
+  .pt-judge-perch .theater-frog,
+  .is-speaking-group .pt-ripple,
+  .theater-frog-eye,
+  .theater-frog.is-speaking .theater-frog-mouth-open,
+  .theater-frog.is-speaking .theater-frog-throat,
+  .pt-thinking-dots span,
+  .pt-petal {
+    animation: none !important;
+  }
+
+  .pt-verdict-banner,
+  .pt-beam,
+  .pt-jar-fill {
+    transition: none !important;
+  }
+
+  .pt-verdict-banner { opacity: 1; transform: translateX(-50%) scale(1); }
+}
+
+/* --- pond theater: expressions + tap-to-croak -------------------------- */
+
+/* The frog wrap is a button now (tap for a croak) — reset chrome. */
+button.pt-frog-wrap {
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  display: block;
+}
+
+button.pt-frog-wrap:focus-visible {
+  outline: 3px solid rgba(240, 180, 106, 0.7);
+  outline-offset: 4px;
+  border-radius: 50%;
+}
+
+/* Posture — the listener leans in to squint; Last Word stands tall. */
+.pt-pad-group .pt-frog-wrap {
+  transition: transform 600ms ease;
+}
+
+.pt-pad-pro.is-leaning .pt-frog-wrap { transform: rotate(4deg) translateX(8px); }
+.pt-pad-con.is-leaning .pt-frog-wrap { transform: rotate(-4deg) translateX(-8px); }
+.pt-pad-group.is-proud .pt-frog-wrap { transform: translateY(-6px) scale(1.04); }
+
+/* Squint — eyes narrow and hold (overrides the blink loop). */
+.theater-frog-eye.is-squint {
+  animation: none;
+  transform: scaleY(0.5);
+}
+
+/* Pupils — dart side to side (Comeback listener) or drift up (thinking). */
+.theater-frog-pupil {
+  transition: transform 300ms ease;
+}
+
+.theater-frog-pupil.is-think { transform: translateY(-2.4px); }
+
+.theater-frog-pupil.is-dart {
+  animation: pt-dart 1.7s ease-in-out infinite;
+}
+
+@keyframes pt-dart {
+  0%, 100% { transform: translateX(0); }
+  20%, 40% { transform: translateX(-2.4px); }
+  60%, 85% { transform: translateX(2.4px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .theater-frog-pupil.is-dart {
+    animation: none !important;
+  }
+
+  .pt-pad-group .pt-frog-wrap,
+  .theater-frog-pupil {
+    transition: none !important;
+  }
+}
+
+/* --- theater ambient --------------------------------------------------- */
+
+/*
+ * While a debate is playing in theater mode the whole page dims to the
+ * stage's swamp-water palette, so the pond scene sits in a dark room
+ * instead of floating on daylight. Applied to <body> by the workspace.
+ * Cream cards (question banner, verdict, transcript) read as parchment
+ * against it; only text sitting directly on the page needs recoloring.
+ */
+body.theater-ambient {
+  background:
+    radial-gradient(circle at 20% 8%, rgba(240, 180, 106, 0.08), transparent 26rem),
+    radial-gradient(circle at 80% 92%, rgba(68, 161, 95, 0.12), transparent 26rem),
+    linear-gradient(165deg, #10262e 0%, #14333c 44%, #1b4450 100%);
+}
+
+.theater-ambient footer button {
+  color: rgba(246, 234, 210, 0.62);
+}
+
+.theater-ambient footer button:hover {
+  color: #f6ead2;
+}
+
+.theater-ambient footer p {
+  color: rgba(246, 234, 210, 0.45);
+}
+
+.theater-ambient footer p a:hover {
+  color: #f6ead2;
 }

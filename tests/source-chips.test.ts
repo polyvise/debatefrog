@@ -20,6 +20,7 @@ describe("Debatefrog source chips", () => {
         title: "Voting at 16",
         url: "https://example.edu/voting-at-16",
         publisher: "University Civic Lab",
+        publishedAt: "2026-04-12",
         snippet: "Research on younger voters.",
         quality: "expert",
         retrievedVia: "tavily",
@@ -30,7 +31,8 @@ describe("Debatefrog source chips", () => {
     expect(buildFroglingsSourceChips(["mock-method", "live-1"], sources)).toEqual([
       {
         id: "live-1",
-        label: "University Civic Lab",
+        label: "Voting at 16",
+        detail: "University Civic Lab · Apr 12, 2026",
         url: "https://example.edu/voting-at-16"
       }
     ]);

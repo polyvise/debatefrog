@@ -18,13 +18,13 @@
  */
 
 const INTRO_SEEN_KEY = "froglings:intro-seen";
-const MODEL_SETTINGS_KEY = "froglings:model-settings:v3";
+const MODEL_SETTINGS_KEY = "froglings:model-settings:v4";
 const USER_PREFERENCES_KEY = "froglings:user-preferences";
+const VIEW_MODE_KEY = "froglings:view-mode";
 const isPreviewDeploy = process.env.NEXT_PUBLIC_DEPLOY_CHANNEL === "preview";
 const showApiDebugDetails = process.env.NODE_ENV !== "production";
 
 import {
-  createContext,
   FormEvent,
   useCallback,
   useContext,
@@ -48,6 +48,7 @@ import {
   Send,
   Settings,
   SlidersHorizontal,
+  Sparkles,
   XCircle,
   Volume2,
   VolumeX,
@@ -55,9 +56,27 @@ import {
 } from "lucide-react";
 import { FunFrog } from "@/components/fun-frog";
 import { SlowPrint } from "@/components/slow-print";
-import { useFrogSounds } from "@/components/use-frog-sounds";
+import { FrogSoundsContext, useFrogSounds } from "@/components/use-frog-sounds";
 import { FroglingsIntro } from "@/components/froglings-intro";
+import { PondTheater } from "@/components/pond-theater";
 import { buildFroglingsSourceChips, type FroglingsSourceChip } from "@/lib/source-chips";
+import {
+  friendlyRound,
+  friendlyStage,
+  froglingsBubbleText,
+  froglingsFrogName,
+  froglingsVerdictCopy,
+  hasAllDebateTurns,
+  literalQuestionText,
+  nextExpectedFrogSide,
+  orderedFroglingsTurns
+} from "@/lib/froglings-text";
+import {
+  debateStepModelKeys,
+  debateStepModelLabels,
+  type DebateStepModelKey,
+  type DebateStepModelSelections
+} from "@/lib/debate-step-models";
 import type {
   Claim,
   DebateLiveEvent,
@@ -107,8 +126,7 @@ const DEBATE_UNAVAILABLE_MESSAGE =
 const CLIENT_API_MAX_ATTEMPTS = 3;
 const CLIENT_API_RETRY_BASE_DELAY_MS = 500;
 
-type ModelRole = "yes" | "no" | "judge";
-type ModelSelections = Record<ModelRole, string>;
+type ModelSelections = DebateStepModelSelections;
 type ModelOption = { id: string; label: string };
 type ModelOptionsResponse = {
   defaults: ModelSelections;
@@ -123,6 +141,12 @@ type UserPreferences = {
   openingSplash: boolean;
   liveApisInDev: boolean;
 };
+/**
+ * Which live renderer to use: "theater" is the full-scene pond stage,
+ * "classic" is the original round-card view (also the reduced-motion
+ * and screen-reader friendly fallback). Persisted per browser.
+ */
+type ViewMode = "theater" | "classic";
 const defaultUserPreferences: UserPreferences = {
   openingSplash: true,
   liveApisInDev: false
@@ -136,56 +160,11 @@ type ApiCallTiming = {
   children?: ApiCallTiming[];
 };
 
-/**
- * Plain-language stage labels for younger readers. The engine emits the
- * same DebateStatus values as the engine — we just rename them.
- */
-const friendlyStage: Record<DebateStatus, string> = {
-  queued: "the frogs are getting ready",
-  framing: "the frogs are reading the question",
-  researching: "the frogs are looking up facts",
-  debating: "the frogs are debating",
-  judging: "the judge frog is thinking",
-  complete: "debate finished",
-  failed: "uh oh - the frogs slipped off the lily pad",
-  partial: "uh oh - the frogs slipped off the lily pad"
-};
-
-/**
- * Plain-language round labels. Matches DebateRound from the engine.
- */
-const friendlyRound: Record<DebateRound, { title: string; blurb: string }> = {
-  opening: {
-    title: "Round 1 — Opening",
-    blurb: "Each frog says what they think."
-  },
-  cross_examination: {
-    title: "Round 2 — Tough Questions",
-    blurb: "Each frog asks the other tricky questions."
-  },
-  rebuttal: {
-    title: "Round 3 — Comeback",
-    blurb: "Each frog answers back to defend their side."
-  },
-  closing: {
-    title: "Round 4 — Last Word",
-    blurb: "Each frog says why they should win."
-  },
-  judge_review: {
-    title: "Judge's Notes",
-    blurb: "The judge frog jots down what stood out."
-  },
-  synthesis: {
-    title: "Wrap-up",
-    blurb: "Putting it all together."
-  }
-};
-
 // -------------------------------------------------------------------------
 // Live state — keep only the fields this UI renders.
 // -------------------------------------------------------------------------
 
-type FroglingsLiveState = {
+export type FroglingsLiveState = {
   debateId: string;
   subject: string;
   status: DebateStatus;
@@ -452,29 +431,6 @@ function formatDuration(durationMs: number): string {
 }
 
 // -------------------------------------------------------------------------
-// Tiny context so Bubble can trigger play/stop without prop-drilling.
-// -------------------------------------------------------------------------
-
-type FrogSoundsCtx = {
-  ready: boolean;
-  play: (side: "pro" | "con" | "judge", options?: { random?: boolean }) => void;
-  stop: (side: "pro" | "con" | "judge") => void;
-  beep: (options: { frequency: number; durationMs: number; delayMs?: number; gain?: number }) => void;
-  startIntro: () => void;
-  stopIntro: () => void;
-};
-
-const noopSounds: FrogSoundsCtx = {
-  ready: false,
-  play: () => {},
-  stop: () => {},
-  beep: () => {},
-  startIntro: () => {},
-  stopIntro: () => {}
-};
-const FrogSoundsContext = createContext<FrogSoundsCtx>(noopSounds);
-
-// -------------------------------------------------------------------------
 // Top-level workspace
 // -------------------------------------------------------------------------
 
@@ -490,6 +446,8 @@ export function FroglingsWorkspace() {
   const [modelSelections, setModelSelections] = useState<ModelSelections | null>(null);
   const [modelOptionsError, setModelOptionsError] = useState<string | null>(null);
   const [userPreferences, setUserPreferences] = useState<UserPreferences>(defaultUserPreferences);
+  // Default to the theater; a stored choice (or reduced-motion) wins.
+  const [viewMode, setViewMode] = useState<ViewMode>("theater");
   const eventSourceRef = useRef<EventSource | null>(null);
   const sounds = useFrogSounds();
   const soundControls = useMemo(
@@ -498,10 +456,11 @@ export function FroglingsWorkspace() {
       play: sounds.play,
       stop: sounds.stop,
       beep: sounds.beep,
+      blip: sounds.blip,
       startIntro: sounds.startIntro,
       stopIntro: sounds.stopIntro
     }),
-    [sounds.ready, sounds.play, sounds.stop, sounds.beep, sounds.startIntro, sounds.stopIntro]
+    [sounds.ready, sounds.play, sounds.stop, sounds.beep, sounds.blip, sounds.startIntro, sounds.stopIntro]
   );
   // Show the intro on first session only. We default to false on the
   // server (so the overlay never SSRs and flashes), then flip to true
@@ -521,6 +480,48 @@ export function FroglingsWorkspace() {
   useEffect(() => {
     setUserPreferences(readStoredUserPreferences());
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const stored = window.localStorage.getItem(VIEW_MODE_KEY);
+      if (stored === "classic" || stored === "theater") {
+        setViewMode(stored);
+        return;
+      }
+    } catch {
+      // localStorage unavailable; keep the default.
+    }
+    // No stored choice: reduced-motion users get the calmer classic view.
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      setViewMode("classic");
+    }
+  }, []);
+
+  // While a debate is playing in theater mode, dim the whole page to the
+  // stage's swamp-water palette (see body.theater-ambient in globals.css).
+  const theaterAmbient = viewMode === "theater" && live !== null;
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    document.body.classList.toggle("theater-ambient", theaterAmbient);
+    return () => {
+      document.body.classList.remove("theater-ambient");
+    };
+  }, [theaterAmbient]);
+
+  const toggleViewMode = () => {
+    setViewMode((current) => {
+      const next: ViewMode = current === "theater" ? "classic" : "theater";
+      try {
+        if (typeof window !== "undefined") {
+          window.localStorage.setItem(VIEW_MODE_KEY, next);
+        }
+      } catch {
+        // ignore storage failures
+      }
+      return next;
+    });
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -678,7 +679,10 @@ export function FroglingsWorkspace() {
   return (
     <main className="mx-auto w-full max-w-[960px] px-4 py-6 sm:py-10">
       <header className="flex items-center justify-between">
-        <Link href={"/" as Route} className="flex items-center gap-3 text-pond">
+        <Link
+          href={"/" as Route}
+          className={`flex items-center gap-3 ${theaterAmbient ? "text-cream" : "text-pond"}`}
+        >
           <FunFrog mood="idle" size={42} bob={false} />
           <span className="text-lg font-black tracking-tight">DebateFrog</span>
           {isPreviewDeploy ? (
@@ -688,6 +692,24 @@ export function FroglingsWorkspace() {
           ) : null}
         </Link>
         <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={toggleViewMode}
+            aria-pressed={viewMode === "theater"}
+            title={
+              viewMode === "theater"
+                ? "Switch to the classic card view"
+                : "Switch to the pond theater view"
+            }
+            className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-bold shadow-sm transition ${
+              viewMode === "theater"
+                ? `bg-pond text-cream hover:bg-leafDark${theaterAmbient ? " ring-1 ring-cream/30" : ""}`
+                : "bg-white/70 text-pond hover:bg-white"
+            }`}
+          >
+            <Sparkles className="h-3.5 w-3.5" />
+            Theater
+          </button>
           <Link
             href={"/stats" as Route}
             className="inline-flex items-center gap-1.5 rounded-full bg-white/70 px-3 py-1.5 text-xs font-bold text-pond shadow-sm transition hover:bg-white"
@@ -728,7 +750,11 @@ export function FroglingsWorkspace() {
         />
       ) : (
         <FrogSoundsContext.Provider value={soundControls}>
-          <FroglingsLive live={live} preferences={userPreferences} />
+          {viewMode === "theater" ? (
+            <PondTheater live={live} />
+          ) : (
+            <FroglingsLive live={live} preferences={userPreferences} />
+          )}
         </FrogSoundsContext.Provider>
       )}
 
@@ -957,11 +983,9 @@ function FroglingsControlPanel({
   const [apiCallsOpen, setApiCallsOpen] = useState(false);
   const panelRef = useRef<HTMLElement>(null);
   const controlButtonRef = useRef<HTMLButtonElement>(null);
-  const roles: Array<{ key: ModelRole; label: string }> = [
-    { key: "yes", label: "YES frog" },
-    { key: "no", label: "NO frog" },
-    { key: "judge", label: "Judge frog" }
-  ];
+  const roles: Array<{ key: DebateStepModelKey; label: string }> = debateStepModelKeys.map(
+    (key) => ({ key, label: debateStepModelLabels[key] })
+  );
   const maxDurationMs = Math.max(...apiCalls.map((call) => call.durationMs), 1);
   const devLiveApisAvailable = Boolean(modelOptions?.dev?.liveApiToggleAvailable);
   const devLiveApisReady = Boolean(modelOptions?.dev?.hasOpenRouterKey && modelOptions?.dev?.hasTavilyKey);
@@ -1078,7 +1102,7 @@ function FroglingsControlPanel({
           <div className="mt-3 rounded-xl border border-white/10 bg-white/[0.06] p-3">
             <div className="text-[11px] font-black uppercase tracking-wide text-mint">Model choices</div>
             <p className="mt-1 text-xs leading-relaxed text-white/65">
-              Pick which curated model speaks for each frog.
+              Pick one model for each debate step. YES and NO always use the same model in a round.
             </p>
 
             {modelOptionsError ? (
@@ -1263,11 +1287,12 @@ function sanitizeModelSelections(
   stored: Partial<ModelSelections>
 ): ModelSelections {
   const ids = new Set(modelOptions.options.map((option) => option.id));
-  return {
-    yes: stored.yes && ids.has(stored.yes) ? stored.yes : modelOptions.defaults.yes,
-    no: stored.no && ids.has(stored.no) ? stored.no : modelOptions.defaults.no,
-    judge: stored.judge && ids.has(stored.judge) ? stored.judge : modelOptions.defaults.judge
-  };
+  return Object.fromEntries(
+    debateStepModelKeys.map((key) => [
+      key,
+      stored[key] && ids.has(stored[key]) ? stored[key] : modelOptions.defaults[key]
+    ])
+  ) as ModelSelections;
 }
 
 function readStoredUserPreferences(): UserPreferences {
@@ -1748,6 +1773,11 @@ function QuestionBanner({
       <div className="mt-1 text-lg leading-snug text-ink">
         {literalQuestionText(live.subject)}
       </div>
+      {latestEvidenceDate(live.sources) ? (
+        <div className="mt-1 text-[11px] font-semibold text-mud/55">
+          Sources published through {latestEvidenceDate(live.sources)}
+        </div>
+      ) : null}
       {!showStartSequence || showSlowWait ? (
         showSlowWait ? (
           <div className="mt-4 rounded-xl border border-leaf/25 bg-white/55 p-3 shadow-sm" aria-live="polite">
@@ -1781,6 +1811,20 @@ function QuestionBanner({
       ) : null}
     </section>
   );
+}
+
+function latestEvidenceDate(sources: EvidenceSource[]): string | null {
+  const timestamps = sources
+    .map((source) => (source.publishedAt ? new Date(source.publishedAt).getTime() : Number.NaN))
+    .filter(Number.isFinite);
+  if (timestamps.length === 0) return null;
+
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC"
+  }).format(new Date(Math.max(...timestamps)));
 }
 
 function froglingsStageCopy(
@@ -2176,13 +2220,21 @@ function Bubble({
                 href={chip.url}
                 target="_blank"
                 rel="noreferrer"
-                className={`inline-flex max-w-full items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold transition ${
+                title={`${chip.label}${chip.detail ? ` — ${chip.detail}` : ""}`}
+                className={`inline-flex max-w-full items-center gap-1.5 rounded-lg border px-2 py-1 text-[10px] font-bold transition ${
                   isPro
                     ? "border-leaf/25 bg-white/40 text-pond hover:bg-white/70"
                     : "border-berry/20 bg-white/45 text-berry hover:bg-white/75"
                 }`}
               >
-                <span className="truncate">{chip.label}</span>
+                <span className="min-w-0">
+                  <span className="block truncate">{chip.label}</span>
+                  {chip.detail ? (
+                    <span className="block truncate text-[9px] font-semibold opacity-65">
+                      {chip.detail}
+                    </span>
+                  ) : null}
+                </span>
                 <ExternalLink className="h-2.5 w-2.5 shrink-0" aria-hidden="true" />
               </a>
             ))}
@@ -2387,198 +2439,6 @@ function froglingsVerdictDecision(recommendation: Scorecard["recommendation"]) {
         subLabel: "Both frogs made strong points.",
         Icon: CircleHelp,
         className: "border-[#9978b8]/30 bg-[#9978b8]/12 text-[#5c4583]"
-      };
-  }
-}
-
-function orderedFroglingsTurns(turns: RoundTurn[]) {
-  const roundOrder: DebateRound[] = ["opening", "cross_examination", "rebuttal", "closing"];
-  const sideOrder = { pro: 0, con: 1, neutral: 2 };
-  return [...turns]
-    .filter((turn) => roundOrder.includes(turn.round))
-    .sort((a, b) => {
-      const roundDiff = roundOrder.indexOf(a.round) - roundOrder.indexOf(b.round);
-      if (roundDiff !== 0) return roundDiff;
-      return sideOrder[a.side] - sideOrder[b.side];
-    });
-}
-
-function hasAllDebateTurns(turns: RoundTurn[]) {
-  const debateTurns = orderedFroglingsTurns(turns);
-  const rounds = new Set(debateTurns.map((turn) => turn.round));
-  const hasBothSidesByRound = ["opening", "cross_examination", "rebuttal", "closing"].every((round) => {
-    const turnsForRound = debateTurns.filter((turn) => turn.round === round);
-    return turnsForRound.some((turn) => turn.side === "pro") && turnsForRound.some((turn) => turn.side === "con");
-  });
-  return rounds.size >= 4 && hasBothSidesByRound;
-}
-
-function nextExpectedFrogSide(turns: RoundTurn[]): "pro" | "con" {
-  const count = orderedFroglingsTurns(turns).length;
-  return count % 2 === 0 ? "pro" : "con";
-}
-
-function froglingsBubbleText(turn: RoundTurn) {
-  const text = simplifyForKids(stripSpeakerPrefix(turn.content, turn.agentName));
-  const sentences = text.match(/[^.!?]+[.!?]+|[^.!?]+$/g)?.map((sentence) => sentence.trim()) ?? [text];
-  const picked: string[] = [];
-
-  for (const sentence of sentences) {
-    if (!sentence) continue;
-    const next = [...picked, sentence].join(" ");
-    if (picked.length >= 2 || next.length > 300) break;
-    picked.push(sentence);
-  }
-
-  const compressed = picked.length > 0 ? picked.join(" ") : text;
-  return trimAtWord(compressed, 320);
-}
-
-function stripSpeakerPrefix(content: string, agentName: string) {
-  const escapedName = agentName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return content
-    .replace(new RegExp(`^${escapedName}:\\s*`, "i"), "")
-    .replace(/^\w[\w\s-]{0,40}:\s*/, "");
-}
-
-function simplifyForKids(content: string) {
-  return content
-    .replace(/\((?:claim|src)[^)]+\)/gi, "")
-    .replace(/\bYou says that\b/g, "You said that")
-    .replace(/\byou says that\b/g, "you said that")
-    .replace(/\bYou says\b/g, "You said")
-    .replace(/\byou says\b/g, "you said")
-    .replace(/["“]Resolved:\s*([^"”]+?)\.?["”]/gi, (_match, question: string) => `"${froglingsQuestionText(question)}"`)
-    .replace(/\bResolved:\s*/gi, "")
-    .replace(/^The (?:YES side|affirmative) case for ["“][^"”]+["”]\s+(?:is grounded in|starts with (?:this claim|the claim that):?)\s*/i, "The green frog says ")
-    .replace(/^The (?:YES side|affirmative) case .*? starts with (?:this claim|the claim that):?\s*/i, "The green frog says ")
-    .replace(/^The (?:NO side|negative) case (?:against ["“][^"”]+["”]\s+)?(?:challenges the question by )?(?:asserting|saying|arguing):?\s*(?:that\s*)?/i, "The pink frog says ")
-    .replace(/^The (?:NO side|negative) case challenges the question by (?:asserting|saying|arguing):?\s*/i, "The pink frog says ")
-    .replace(/\bpro side's\b/gi, "YES side's")
-    .replace(/\bcon side's\b/gi, "NO side's")
-    .replace(/\bpro side\b/gi, "YES side")
-    .replace(/\bcon side\b/gi, "NO side")
-    .replace(/\bpro case\b/gi, "YES case")
-    .replace(/\bcon case\b/gi, "NO case")
-    .replace(/\bvote pro\b/gi, "vote YES")
-    .replace(/\bvote con\b/gi, "vote NO")
-    .replace(/\baffirmative\b/gi, "YES side")
-    .replace(/\bnegative\b/gi, "NO side")
-    .replace(/\bYES side side\b/gi, "YES side")
-    .replace(/\bNO side side\b/gi, "NO side")
-    .replace(/\bpro\b/gi, "YES")
-    .replace(/\bcon\b/gi, "NO")
-    .replace(/\basserts?\b/gi, "says")
-    .replace(/\bindicates?\b/gi, "shows")
-    .replace(/\bsubstantial\b/gi, "big")
-    .replace(/\bimplementation of\b/gi, "using")
-    .replace(/\bacademic achievement\b/gi, "school performance")
-    .replace(/\blogistical challenges\b/gi, "planning problems")
-    .replace(/\bresolution\b/gi, "question")
-    .replace(/\bstudies shows\b/gi, "studies show")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function froglingsQuestionText(input: string) {
-  const cleaned = input
-    .replace(/^Resolved:\s*/i, "")
-    .replace(/\s+/g, " ")
-    .trim();
-  if (/^should\b/i.test(cleaned)) return `${cleaned.replace(/[.!?]+$/, "")}?`;
-  return cleaned.replace(/\.$/, "");
-}
-
-function literalQuestionText(input: string) {
-  return input.replace(/\s+/g, " ").trim();
-}
-
-function froglingsFrogName(side: "pro" | "con") {
-  return side === "pro" ? "Yes Frog" : "No Frog";
-}
-
-function trimAtWord(content: string, maxLength: number) {
-  if (content.length <= maxLength) return content;
-  const slice = content.slice(0, maxLength).trim();
-  const lastSpace = slice.lastIndexOf(" ");
-  const trimmed = slice.slice(0, lastSpace > 180 ? lastSpace : maxLength).replace(/[,:;.-]+$/, "");
-  return `${trimmed}.`;
-}
-
-function froglingsVerdictCopy(scorecard: Scorecard, topicKind?: TopicKind, summary?: DebateSummary | null) {
-  const summaryHeadline = summary?.headline ? simplifyForKids(summary.headline) : "";
-  const summaryBody = summary?.recommendation ? simplifyForKids(summary.recommendation) : "";
-
-  if (summaryHeadline && summaryBody) {
-    return {
-      headline: summaryHeadline,
-      body: summaryBody
-    };
-  }
-
-  const topicCopy = froglingsVerdictTopicCopy(topicKind);
-
-  switch (scorecard.recommendation) {
-    case "lean_yes":
-      return {
-        headline: "The judge gives this one to YES.",
-        body: "The green frog made the stronger case, but the pink frog still raised some things to watch."
-      };
-    case "conditional_yes":
-      return {
-        headline: topicCopy.conditionalYesHeadline,
-        body: topicCopy.conditionalYesBody
-      };
-    case "lean_no":
-      return {
-        headline: "The judge gives this one to NO.",
-        body: "The pink frog made the stronger case, though the green frog had some good reasons too."
-      };
-    case "conditional_no":
-      return {
-        headline: topicCopy.conditionalNoHeadline,
-        body: topicCopy.conditionalNoBody
-      };
-    case "mixed":
-    default:
-      return {
-        headline: "The judge says this one is close.",
-        body: "Both frogs made good points. The best answer depends on which reasons matter most."
-      };
-  }
-}
-
-function froglingsVerdictTopicCopy(topicKind?: TopicKind) {
-  switch (topicKind) {
-    case "policy":
-    case "decision":
-      return {
-        conditionalYesHeadline: "The judge says: probably YES, with care.",
-        conditionalYesBody:
-          "The green frog made the stronger case, but the idea would need clear rules and checks along the way.",
-        conditionalNoHeadline: "The judge says: probably NO, unless things change.",
-        conditionalNoBody:
-          "The pink frog made the stronger case for now. Better evidence or a safer plan could change the answer."
-      };
-    case "empirical":
-    case "comparison":
-      return {
-        conditionalYesHeadline: "The judge says: probably YES.",
-        conditionalYesBody:
-          "The green frog made the stronger case from the evidence shown, though the answer is not completely certain.",
-        conditionalNoHeadline: "The judge says: probably NO.",
-        conditionalNoBody:
-          "The pink frog made the stronger case from the evidence shown, though the answer is not completely certain."
-      };
-    case "value":
-    default:
-      return {
-        conditionalYesHeadline: "The judge says: probably YES.",
-        conditionalYesBody:
-          "The green frog made the stronger case, but the answer depends on which reasons matter most.",
-        conditionalNoHeadline: "The judge says: probably NO.",
-        conditionalNoBody:
-          "The pink frog made the stronger case, but the answer depends on which reasons matter most."
       };
   }
 }

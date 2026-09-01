@@ -28,6 +28,12 @@ interface SlowPrintProps {
   onTypingChange?: (typing: boolean) => void;
   /** Fires once when the current text has fully printed. */
   onComplete?: () => void;
+  /**
+   * Fires on every tick with the last character just revealed. The pond
+   * theater uses this to play a frog-speak voice blip per syllable.
+   * Not called on reduced-motion instant prints.
+   */
+  onProgress?: (lastChar: string) => void;
   className?: string;
 }
 
@@ -37,6 +43,7 @@ export function SlowPrint({
   tickMs = 14,
   onTypingChange,
   onComplete,
+  onProgress,
   className
 }: SlowPrintProps) {
   const [shown, setShown] = useState("");
@@ -46,6 +53,8 @@ export function SlowPrint({
   onTypingRef.current = onTypingChange;
   const onCompleteRef = useRef(onComplete);
   onCompleteRef.current = onComplete;
+  const onProgressRef = useRef(onProgress);
+  onProgressRef.current = onProgress;
 
   useEffect(() => {
     if (!text) {
@@ -76,6 +85,7 @@ export function SlowPrint({
       if (cancelled) return;
       cursor = Math.min(text.length, cursor + step);
       setShown(text.slice(0, cursor));
+      onProgressRef.current?.(text.charAt(cursor - 1));
       if (cursor >= text.length) {
         window.clearInterval(interval);
         onTypingRef.current?.(false);
