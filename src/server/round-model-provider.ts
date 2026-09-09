@@ -137,7 +137,9 @@ export function withDebatefrogGenerationRules(request: LlmRequest): LlmRequest {
 
   parsed.rules = [
     ...existingRules,
+    "Write for readers in grades 5 through 8. Use short, concrete sentences and explain specialized terms in plain language.",
     "The frog is an advocate discussing the debate subject, never the subject itself. First-person words describe the frog's argument only. For a named person, company, country, or organization, use that subject's name or third-person pronouns; never turn the subject's experiences, office, approval, popularity, vote share, or actions into I, me, or my statements.",
+    "In visible debate turns, speak as the frog in first person. Refer to the other debater as my opponent, the other frog, you, or your side. Do not narrate what the pro side or con side says.",
     "Use only source ids whose title and snippet directly support the nearby claim. Prefer original pollsters, official records, and primary research over social posts or commentary.",
     "Never compare percentages as a trend unless they measure the same concept, population, and time series. Distinguish job approval, favorability, vote share, policy support, and voting intention.",
     "For a vague empirical trend question, state the operational definition, population, comparison period, and evidence cutoff you are using. Do not pretend that a broad word such as popularity has only one possible measure.",
@@ -276,6 +278,7 @@ function rulesForSchemaAndRound(schemaName: string, round: unknown): string[] {
   if (schemaName === "judgeScorecardOutput" || schemaName === "finalSummaryOutput") {
     return [
       "Identify the strongest point from each frog and the single hinge that decides the result. Explicitly disregard unsupported claims and incompatible statistic comparisons.",
+      "In visible summary copy, call the pro advocate the green frog and the con advocate the pink frog. Avoid abstract pro/con terminology.",
       "Calibrate confidence to evidence quality. Domain-name citations alone, social posts, commentary, or an unexplained percentage do not justify high confidence."
     ];
   }

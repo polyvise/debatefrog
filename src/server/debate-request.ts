@@ -23,6 +23,7 @@ const debatefrogModelSelectionSchema = z
   .optional();
 
 export const debatefrogRequestSchema = debateRequestSchema.extend({
+  mode: z.literal("hybrid_council").optional(),
   models: debatefrogModelSelectionSchema
 });
 
@@ -45,7 +46,7 @@ export function toCoreDebateRequest(request: DebatefrogRequest): NormalizedCoreD
   return {
     subject: request.subject,
     context: request.context,
-    mode: request.mode ?? "hybrid_council",
+    mode: "hybrid_council",
     evidence: request.evidence ?? "cited",
     councilSize: request.councilSize ?? "quartet",
     devOptions: request.devOptions

@@ -28,12 +28,12 @@ describe("mirrored per-step model routing", () => {
     });
   });
 
-  it("maps both frog roles to a round rather than a side", () => {
-    expect(stepForRole("yes frog opening round")).toBe("opening");
-    expect(stepForRole("no frog opening round")).toBe("opening");
-    expect(stepForRole("yes frog cross-examination round")).toBe("crossExamination");
-    expect(stepForRole("no frog rebuttal round")).toBe("rebuttal");
-    expect(stepForRole("yes frog closing round")).toBe("closing");
+  it("maps both advocate roles to a round rather than a side", () => {
+    expect(stepForRole("pro advocate opening round")).toBe("opening");
+    expect(stepForRole("con advocate opening round")).toBe("opening");
+    expect(stepForRole("pro advocate cross-examination round")).toBe("crossExamination");
+    expect(stepForRole("con advocate rebuttal round")).toBe("rebuttal");
+    expect(stepForRole("pro advocate closing round")).toBe("closing");
     expect(stepForRole("final summary")).toBe("judge");
   });
 });
@@ -50,7 +50,7 @@ describe("Debatefrog generation guardrails", () => {
 
   it("removes the repetition-inducing instruction and adds direct-answer guidance", () => {
     const prepared = withDebatefrogGenerationRules({
-      role: "yes frog rebuttal round",
+      role: "pro advocate rebuttal round",
       schemaName: "debateTurnOutput",
       prompt: JSON.stringify(basePrompt)
     });
@@ -59,6 +59,8 @@ describe("Debatefrog generation guardrails", () => {
     expect(parsed.rules.some((rule) => rule.startsWith("Start by naming"))).toBe(false);
     expect(parsed.rules.some((rule) => rule.includes("answer the opponent's exact question immediately"))).toBe(true);
     expect(parsed.rules.some((rule) => rule.includes("never the subject itself"))).toBe(true);
+    expect(parsed.rules.some((rule) => rule.includes("grades 5 through 8"))).toBe(true);
+    expect(parsed.rules.some((rule) => rule.includes("speak as the frog"))).toBe(true);
   });
 
   it("rejects truncated, non-question, persona-confused, and unknown-source turns", () => {
