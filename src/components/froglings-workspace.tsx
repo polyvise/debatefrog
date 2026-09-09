@@ -1626,8 +1626,12 @@ function completedFrogClaimBuilderSides(snapshots: ModelSnapshot[]): Set<"pro" |
 
   for (const snapshot of snapshots) {
     const role = snapshot.role.toLowerCase();
-    if (role.includes("yes frog claim builder")) completed.add("pro");
-    if (role.includes("no frog claim builder")) completed.add("con");
+    if (role.includes("pro advocate claim builder") || role.includes("yes frog claim builder")) {
+      completed.add("pro");
+    }
+    if (role.includes("con advocate claim builder") || role.includes("no frog claim builder")) {
+      completed.add("con");
+    }
   }
 
   return completed;
