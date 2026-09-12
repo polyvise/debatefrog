@@ -6,6 +6,19 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     globals: true,
-    include: ["tests/**/*.test.ts", "tests/**/*.test.tsx"]
+    include: ["tests/**/*.test.ts", "tests/**/*.test.tsx"],
+    coverage: {
+      provider: "v8",
+      reporter: ["text-summary", "html", "json-summary"],
+      include: ["src/**/*.{ts,tsx}"],
+      exclude: ["src/**/*.d.ts"],
+      reportsDirectory: "coverage",
+      thresholds: {
+        statements: 9,
+        branches: 8,
+        functions: 7,
+        lines: 9
+      }
+    }
   }
 });

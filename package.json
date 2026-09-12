@@ -13,9 +13,10 @@
     "eval:models": "tsx scripts/evaluate-models.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
-    "verify": "npm run typecheck && npm test && npm run build"
+    "verify": "npm run typecheck && npm run test:coverage && npm run build"
   },
   "dependencies": {
     "@polyvise/core": "0.3.3",
@@ -32,6 +33,7 @@
     "@types/node": "latest",
     "@types/react": "latest",
     "@types/react-dom": "latest",
+    "@vitest/coverage-v8": "^5.0.0",
     "autoprefixer": "latest",
     "drizzle-kit": "latest",
     "eslint": "latest",
