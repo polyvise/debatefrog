@@ -19,7 +19,7 @@
     "verify": "npm run typecheck && npm run test:coverage && npm run build"
   },
   "dependencies": {
-    "@polyvise/core": "0.3.3",
+    "@polyvise/core": "0.4.1",
     "drizzle-orm": "latest",
     "lucide-react": "latest",
     "next": "latest",
