@@ -1,6 +1,6 @@
 # Debatefrog
 
-Debatefrog is the primary reference implementation for the [Polyvise](https://github.com/polyvise/polyvise-core) debate engine. It provides the playful `debatefrog.com` product, a Next.js runtime, streaming debate updates, persistence adapters, model evaluations, and production deployment.
+[Debatefrog.com](debatefrog.com) is a playful example implementation using the [Polyvise](https://github.com/polyvise/polyvise-core) debate engine. It has a Next.js runtime, streaming debate updates, persistence adapters, model evaluations, and production deployment.
 
 ## Run locally
 
