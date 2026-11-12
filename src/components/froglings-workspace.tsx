@@ -681,7 +681,7 @@ export function FroglingsWorkspace() {
 
   return (
     <main className="mx-auto w-full max-w-[960px] px-4 py-6 sm:py-10">
-      <header className="flex items-center justify-between">
+      <header className="flex flex-wrap items-center justify-between gap-3">
         <Link
           href={"/" as Route}
           className={`flex items-center gap-3 ${theaterAmbient ? "text-cream" : "text-pond"}`}
@@ -694,7 +694,7 @@ export function FroglingsWorkspace() {
             </span>
           ) : null}
         </Link>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <button
             type="button"
             onClick={toggleViewMode}
