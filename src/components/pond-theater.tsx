@@ -30,7 +30,7 @@ import { JudgeThoughtBubble } from "@/components/judge-thought-bubble";
 import { TheaterFrog, type TheaterFrogExpression } from "@/components/theater-frog";
 import { FrogSoundsContext } from "@/components/use-frog-sounds";
 import { buildFroglingsSourceChips } from "@/lib/source-chips";
-import { ROUND_HOLD_MS } from "@/lib/froglings-pacing";
+import { roundReadingHoldMs } from "@/lib/froglings-pacing";
 import {
   friendlyRound,
   froglingsBubbleText,
@@ -127,21 +127,6 @@ function PondPerformance({ live }: { live: FroglingsLiveState }) {
     setProDone(true);
   }, []);
 
-  // No Frog finishing is the cue for the whole round: hold both
-  // comments on screen a beat, then clear them and move to the next
-  // round.
-  const handleConComplete = useCallback(() => {
-    if (advanceTimerRef.current !== null) window.clearTimeout(advanceTimerRef.current);
-    setRoundHoldEndsAt(Date.now() + ROUND_HOLD_MS);
-    advanceTimerRef.current = window.setTimeout(() => {
-      advanceTimerRef.current = null;
-      setRoundHoldEndsAt(null);
-      setRoundIndex((index) => index + 1);
-      setProDone(false);
-      setTypingSide(null);
-    }, ROUND_HOLD_MS);
-  }, []);
-
   const currentRound: DebateRound | null = ROUND_ORDER[roundIndex] ?? null;
   const roundTurns = useMemo(
     () => (currentRound ? live.turns.filter((turn) => turn.round === currentRound) : []),
@@ -149,6 +134,24 @@ function PondPerformance({ live }: { live: FroglingsLiveState }) {
   );
   const proTurn = roundTurns.find((turn) => turn.side === "pro") ?? null;
   const conTurn = roundTurns.find((turn) => turn.side === "con") ?? null;
+  const roundHoldMs = roundReadingHoldMs(
+    [proTurn, conTurn].flatMap((turn) => turn ? [froglingsTheaterCaption(turn)] : [])
+  );
+
+  // No Frog finishing is the cue for the whole round: hold both
+  // comments on screen a beat, then clear them and move to the next
+  // round.
+  const handleConComplete = useCallback(() => {
+    if (advanceTimerRef.current !== null) window.clearTimeout(advanceTimerRef.current);
+    setRoundHoldEndsAt(Date.now() + roundHoldMs);
+    advanceTimerRef.current = window.setTimeout(() => {
+      advanceTimerRef.current = null;
+      setRoundHoldEndsAt(null);
+      setRoundIndex((index) => index + 1);
+      setProDone(false);
+      setTypingSide(null);
+    }, roundHoldMs);
+  }, [roundHoldMs]);
 
   const allRoundsHeld = roundIndex >= ROUND_ORDER.length;
   const hasVerdict = Boolean(live.summary && live.scorecard);

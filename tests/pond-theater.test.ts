@@ -5,6 +5,19 @@ import type { RoundTurn } from "@polyvise/core/debate/types";
 import { PondTheater } from "@/components/pond-theater";
 import type { FroglingsLiveState } from "@/components/froglings-workspace";
 import { froglingsBubbleText, froglingsTheaterCaption } from "@/lib/froglings-text";
+import { roundReadingHoldMs } from "@/lib/froglings-pacing";
+
+describe("reading time", () => {
+  it.each([
+    [0, 0, 6000],
+    [50, 50, 6000],
+    [51, 50, 7000],
+    [60, 60, 10000],
+    [80, 20, 12000]
+  ])("gives %i- and %i-word statements a %ims pause", (proWords, conWords, expectedMs) => {
+    expect(roundReadingHoldMs(["word\n ".repeat(proWords), "word ".repeat(conWords)])).toBe(expectedMs);
+  });
+});
 
 function turn(side: "pro" | "con", content: string, round: RoundTurn["round"] = "opening"): RoundTurn {
   return {
@@ -87,7 +100,7 @@ describe("pond theater playback", () => {
 
   it("finishes both statements, holds for six seconds, and buffers arriving turns", () => {
     const pro = turn("pro", "More time outside helps children concentrate. ".repeat(8).trim());
-    const con = turn("con", "We also need enough time for lessons. ".repeat(8).trim());
+    const con = turn("con", "We also need enough time for lessons. ".repeat(7).trim());
     const next = turn("pro", "How would the schedule change?", "cross_examination");
     render(live([pro, con]));
     advance(pro.content.length * 20 - 20);
@@ -113,6 +126,24 @@ describe("pond theater playback", () => {
     expect(container.querySelector('[role="timer"]')).toBeNull();
     advance(next.content.length * 20);
     expect(text("pro")).toBe(next.content);
+  });
+
+  it("extends the visible countdown for a long statement and holds arriving rounds until it ends", () => {
+    vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: true })));
+    const pro = turn("pro", Array(80).fill("word").join(" ") + ".");
+    const con = turn("con", Array(20).fill("word").join(" ") + ".");
+    render(live([pro, con]));
+    expect(container.querySelector('[role="timer"]')?.textContent).toBe("Next round in 12s");
+    advance(6000);
+    const next = turn("pro", "Next round.", "cross_examination");
+    render(live([pro, con, next]));
+    expect(container.querySelector('[role="timer"]')?.textContent).toBe("Next round in 6s");
+    expect(text("pro")).toBe(pro.content);
+    advance(5999);
+    expect(container.querySelector(".pt-plaque")?.textContent).toContain("Round 1");
+    advance(1);
+    expect(text("pro")).toBe(next.content);
+    expect(container.querySelector(".pt-plaque")?.textContent).toContain("Round 2");
   });
 
   it("keeps next-round thinking hidden until the reading pause ends", () => {

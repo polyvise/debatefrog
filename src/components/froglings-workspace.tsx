@@ -51,7 +51,7 @@ import {
   Sparkles,
   XCircle,
   Volume2,
-  VolumeX,
+  VolumeOff,
   X
 } from "lucide-react";
 import { FunFrog } from "@/components/fun-frog";
@@ -61,7 +61,7 @@ import { JudgeThoughtBubble } from "@/components/judge-thought-bubble";
 import { FrogSoundsContext, useFrogSounds } from "@/components/use-frog-sounds";
 import { FroglingsIntro } from "@/components/froglings-intro";
 import { PondTheater } from "@/components/pond-theater";
-import { ROUND_HOLD_MS } from "@/lib/froglings-pacing";
+import { roundReadingHoldMs } from "@/lib/froglings-pacing";
 import { buildFroglingsSourceChips, type FroglingsSourceChip } from "@/lib/source-chips";
 import {
   friendlyRound,
@@ -728,7 +728,7 @@ export function FroglingsWorkspace() {
             title={sounds.muted ? "Unmute frog sounds" : "Mute frog sounds"}
             className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-white/70 text-pond shadow-sm transition hover:bg-white"
           >
-            {sounds.muted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
+            {sounds.muted ? <VolumeOff className="h-4 w-4" aria-hidden="true" /> : <Volume2 className="h-4 w-4" aria-hidden="true" />}
           </button>
           {live ? (
             <button
@@ -1724,12 +1724,15 @@ function useStagedFroglingsTurns(live: FroglingsLiveState) {
   const showNextTurn = useCallback(() => {
     if (advanceTimerRef.current !== null) return;
     const completedTurn = debateTurns[visibleCount - 1];
-    if (completedTurn?.side === "con") setRoundHoldEndsAt(Date.now() + ROUND_HOLD_MS);
+    const holdMs = completedTurn?.side === "con"
+      ? roundReadingHoldMs(debateTurns.filter((turn) => turn.round === completedTurn.round).map(froglingsBubbleText))
+      : 450;
+    if (completedTurn?.side === "con") setRoundHoldEndsAt(Date.now() + holdMs);
     advanceTimerRef.current = window.setTimeout(() => {
       advanceTimerRef.current = null;
       setRoundHoldEndsAt(null);
       setVisibleCount((count) => count + 1);
-    }, completedTurn?.side === "con" ? ROUND_HOLD_MS : 450);
+    }, holdMs);
   }, [debateTurns, visibleCount]);
 
   const visibleTurns = debateTurns.slice(0, visibleCount);
