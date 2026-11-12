@@ -57,6 +57,7 @@ import {
 import { FunFrog } from "@/components/fun-frog";
 import { SlowPrint } from "@/components/slow-print";
 import { RoundCountdown } from "@/components/round-countdown";
+import { JudgeThoughtBubble } from "@/components/judge-thought-bubble";
 import { FrogSoundsContext, useFrogSounds } from "@/components/use-frog-sounds";
 import { FroglingsIntro } from "@/components/froglings-intro";
 import { PondTheater } from "@/components/pond-theater";
@@ -1470,7 +1471,7 @@ function FroglingsLive({
         <DebateStartSequence live={live} countdownStarted={countdownStarted} />
       ) : null}
       {live.teams && !preferences.openingSplash ? (
-        <FrogIntros teams={live.teams} researching={live.status === "researching" && !live.done} />
+        <FrogIntros teams={live.teams} researching={isPreparingOpening(live)} />
       ) : null}
       {!showStartSequence ? (
         <>
@@ -1689,6 +1690,12 @@ function useStartSequenceVisibility(
 
 function isStartCountdownStarted(live: FroglingsLiveState) {
   return live.status === "debating" || live.turns.length > 0 || live.done;
+}
+
+function isPreparingOpening(live: FroglingsLiveState) {
+  return !live.done && (live.status === "researching" || (
+    live.status === "debating" && !live.turns.some((turn) => turn.round === "opening" && turn.side === "pro")
+  ));
 }
 
 function useStagedFroglingsTurns(live: FroglingsLiveState) {
@@ -1996,10 +2003,10 @@ function DebateStartSequence({
             ) : null}
           </div>
           <div className="start-frog start-frog-pro">
-            <FunFrog mood="pro" size={64} researching={live.status === "researching" && !live.done} />
+            <FunFrog mood="pro" size={64} researching={isPreparingOpening(live)} />
           </div>
           <div className="start-frog start-frog-con">
-            <FunFrog mood="con" size={64} researching={live.status === "researching" && !live.done} />
+            <FunFrog mood="con" size={64} researching={isPreparingOpening(live)} />
           </div>
           <div className="start-frog start-frog-judge">
             <FunFrog mood="judge" size={58} bob={false} />
@@ -2333,7 +2340,10 @@ function Verdict({
           className="hop-in rounded-2xl border border-mud/20 bg-panel/90 p-5 shadow-lily"
         >
           <div className="flex items-center gap-3 text-sm text-mud/70">
-            <FunFrog mood="judge" size={48} bob speaking={isJudging} />
+            <div className="flex shrink-0 flex-col items-center gap-6">
+              {isJudging ? <JudgeThoughtBubble /> : null}
+              <FunFrog mood="judge" size={48} bob />
+            </div>
             <div className="min-w-0">
               <div className="flex items-center gap-2 font-bold text-pond">
                 {isJudging ? <Loader2 className="h-3.5 w-3.5 animate-spin text-leaf" /> : null}

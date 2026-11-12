@@ -202,6 +202,7 @@ export async function startDebate(input: DebatefrogRequest): Promise<StartDebate
     try {
       const run = await runHybridCouncilDebate(record.id, request, framed, {
         config,
+        streamTurns: true,
         provider: new RoundModelLlmProvider(config, stepModels),
         emit: (event) => bus.emit(event)
       });

@@ -920,6 +920,37 @@ select:focus-visible {
 .pt-thinking-dots span:nth-child(2) { animation-delay: 0.18s; }
 .pt-thinking-dots span:nth-child(3) { animation-delay: 0.36s; }
 
+.judge-thought-bubble {
+  position: relative;
+  border-radius: 28px;
+  background: #fffdf2;
+  color: #5c4583;
+  padding: 14px 18px;
+  max-width: 180px;
+  font-size: 14px;
+  line-height: 1.4;
+  font-weight: 600;
+  text-align: center;
+  box-shadow: 0 8px 20px -12px rgba(6, 22, 30, 0.6);
+}
+.judge-thought-bubble::before,
+.judge-thought-bubble::after {
+  content: "";
+  position: absolute;
+  background: #fffdf2;
+  border-radius: 50%;
+}
+.judge-thought-bubble::before { width: 12px; height: 10px; bottom: -13px; left: 54%; }
+.judge-thought-bubble::after { width: 7px; height: 6px; bottom: -23px; left: 49%; }
+.pt-judge-thought {
+  position: absolute;
+  bottom: calc(100% + 26px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: 170px;
+  z-index: 5;
+}
+
 @keyframes pt-dots {
   0%, 100% { opacity: 0.25; transform: translateY(0); }
   40% { opacity: 1; transform: translateY(-3px); }

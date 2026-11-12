@@ -66,7 +66,7 @@ describe("pond theater playback", () => {
     return container.querySelector(`.pt-bubble-${side} .pt-bubble-text > span:not(.pt-bubble-reserve)`)?.textContent;
   }
 
-  it("shows research props only while gathering evidence, and clears them on debate or failure", () => {
+  it("keeps preparation visible until YES can speak, then clears props on speech or failure", () => {
     const state = { ...live([]), status: "researching" as const };
     render(state);
     expect(container.querySelectorAll(".frog-research-kit")).toHaveLength(2);
@@ -74,6 +74,10 @@ describe("pond theater playback", () => {
     expect(container.querySelector(".pt-pad-con .frog-research-pencil")).not.toBeNull();
     expect(container.querySelector(".pt-pad-judge .frog-research-kit")).toBeNull();
     render({ ...state, status: "debating" });
+    expect(container.querySelectorAll(".frog-research-kit")).toHaveLength(2);
+    expect(container.querySelector(".pt-bubble-thinking")).toBeNull();
+    expect(container.querySelector(".pt-plaque")?.textContent).toContain("Preparing the opening statements");
+    render(live([turn("pro", "Yes.")]));
     expect(container.querySelector(".frog-research-kit")).toBeNull();
     render(state);
     expect(container.querySelectorAll(".frog-research-kit")).toHaveLength(2);
@@ -140,7 +144,28 @@ describe("pond theater playback", () => {
     render(live([], "new-debate"));
     expect(container.querySelector('[role="timer"]')).toBeNull();
     advance(6000);
-    expect(container.querySelector(".pt-plaque")?.textContent).toContain("Round 1");
+    expect(container.querySelector(".pt-plaque")?.textContent).toContain("Preparing the opening statements");
+  });
+
+  it("shows a thought bubble and a still judge mouth after the closing pause", () => {
+    vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: true })));
+    const rounds = ["opening", "cross_examination", "rebuttal", "closing"] as const;
+    const state = live(rounds.flatMap((round) => [turn("pro", "Yes.", round), turn("con", "No.", round)]));
+    state.status = "judging";
+    render(state);
+    for (let index = 0; index < 3; index++) advance(6000);
+    advance(5999);
+    expect(container.querySelector(".judge-thought-bubble")).toBeNull();
+    advance(1);
+    expect(container.querySelector(".pt-pad-judge .judge-thought-bubble")?.textContent).toContain("Weighing both sides");
+    expect(container.querySelector(".pt-pad-judge .theater-frog.is-speaking")).toBeNull();
+    expect(container.querySelector(".pt-pad-judge .theater-frog-pupil.is-think")).not.toBeNull();
+    render({ ...state, status: "complete", done: true,
+      scorecard: { recommendation: "lean_yes", confidence: 0.7, categories: [] },
+      summary: { headline: "YES wins", recommendation: "Try it.", strongestPro: [], strongestCon: [], unresolvedUncertainties: [], whatWouldChangeMind: [], confidence: 0.7 }
+    });
+    expect(container.querySelector(".judge-thought-bubble")).toBeNull();
+    expect(container.querySelector(".pt-verdict-scene")).not.toBeNull();
   });
 
   it("holds the closing statements before revealing an already generated verdict", () => {

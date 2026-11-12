@@ -26,6 +26,7 @@ import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "r
 import { ExternalLink } from "lucide-react";
 import { SlowPrint } from "@/components/slow-print";
 import { RoundCountdown } from "@/components/round-countdown";
+import { JudgeThoughtBubble } from "@/components/judge-thought-bubble";
 import { TheaterFrog, type TheaterFrogExpression } from "@/components/theater-frog";
 import { FrogSoundsContext } from "@/components/use-frog-sounds";
 import { buildFroglingsSourceChips } from "@/lib/source-chips";
@@ -156,6 +157,7 @@ function PondPerformance({ live }: { live: FroglingsLiveState }) {
   // waiting on — don't sit forever showing a "thinking" bubble that
   // will never resolve.
   const roundStuck = live.done && currentRound !== null && (!proTurn || (proDone && !conTurn));
+  const waitingForOpening = roundIndex === 0 && !proTurn && !live.done;
 
   const phase: TheaterPhase =
     debateBroke && (live.turns.length === 0 || roundStuck)
@@ -164,12 +166,12 @@ function PondPerformance({ live }: { live: FroglingsLiveState }) {
         ? "verdict"
         : allRoundsHeld && hasAllDebateTurns(live.turns)
           ? "judging"
-          : live.turns.length > 0 || live.status === "debating"
+          : !waitingForOpening && (live.turns.length > 0 || live.status === "debating")
             ? "debating"
             : "preshow";
 
   const isPreshow = phase === "preshow";
-  const isResearching = isPreshow && live.status === "researching" && !live.done;
+  const isResearching = isPreshow && (live.status === "researching" || live.status === "debating") && !live.done;
   const proThinking = phase === "debating" && !proTurn;
   const conThinking = phase === "debating" && proDone && !conTurn;
   // Whichever frog currently "has the floor": Yes Frog until it wraps
@@ -230,8 +232,8 @@ function PondPerformance({ live }: { live: FroglingsLiveState }) {
             />
             <PadGroup
               side="judge"
-              speaking={phase === "judging"}
-              thinking={false}
+              speaking={false}
+              thinking={phase === "judging"}
               expression={frogExpression("judge", phase, currentRound, activeSide)}
             />
             <PadGroup
@@ -471,6 +473,7 @@ function PadGroup({
       </button>
       <LilyPad />
       <span className="pt-ripple" aria-hidden="true" />
+      {side === "judge" && thinking ? <JudgeThoughtBubble className="pt-judge-thought" /> : null}
       {researching ? (
         <span className="pt-research-label">{side === "pro" ? "Checking sources" : "Taking notes"}</span>
       ) : null}
@@ -574,6 +577,7 @@ function PlaqueCopy({
   if (phase === "verdict") return <b>The verdict</b>;
   if (phase === "judging") return <>The judge frog is thinking…</>;
   if (phase === "failed") return <>Intermission — the frogs slipped</>;
+  if (phase === "preshow" && live.status === "debating") return <>Preparing the opening statements…</>;
   if (live.status === "researching") return <>The frogs are collecting facts…</>;
   return <>The lily pad stage is lighting up…</>;
 }
