@@ -27,13 +27,13 @@ npm run verify
 
 This repository owns Debatefrog-specific UI, routes, feedback, persistence, migrations, evaluations, and deployment. General debate behavior and portable contracts belong in `@polyvise/core`.
 
-Every change starts with the ownership check in [AGENTS.md](AGENTS.md). Stage checkpoints and resumption live in Core; Debatefrog stores checkpoints privately, claims retry attempts atomically, and presents the retry control. Core also owns transport retries, truncation recovery, and the shared remaining-call budget. Debatefrog's provider adapter honors that budget while applying round-specific model choices, age-12 language rules, and evidence checks. It checks the shared schema before product-specific validation, including for callers outside the engine.
+Every change starts with the ownership check in [AGENTS.md](AGENTS.md). Stage checkpoints and resumption live in Core; Debatefrog stores checkpoints privately, claims retry attempts atomically, and presents the retry control. Core also owns transport retries, truncation recovery, and the shared remaining-call budget. Debatefrog's provider adapter honors that budget while applying round-specific model choices, age-10 language rules, and evidence checks. It checks the shared schema before product-specific validation, including for callers outside the engine.
 
 The final pre-split monorepo is preserved in `polyvise/polyvise-core` under the `monolith-final-2026-07-23` tag.
 
 ## Debatefrog generation policy
 
-Visible text targets 12-year-olds: everyday words, short sentences, and roughly 25–45 words per turn. Questions and verdicts are shorter. Length targets never justify truncating a sentence or inventing evidence.
+Visible text targets 10-year-olds: everyday words, short sentences, and roughly 20–35 words per turn. Questions and verdicts are shorter. Completed rounds stay visible for at least 8 seconds, with extra reading time for longer statements. Length targets never justify truncating a sentence or inventing evidence.
 
 Each model step allows at most three HTTP calls across initial generation and one output repair. Each generation allows at most two transport attempts, with a timeout of at most 45 seconds per call and a 1–5-second retry delay. The shared provider retries network errors, timeouts, invalid JSON, empty replies, HTTP 408/409/429, and server errors; authorization and other permanent HTTP errors stop immediately.
 

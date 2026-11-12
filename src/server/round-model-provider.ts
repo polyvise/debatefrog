@@ -215,8 +215,8 @@ export function withDebatefrogGenerationRules(request: LlmRequest): LlmRequest {
 
   parsed.rules = [
     ...existingRules,
-    "Write for a 12-year-old, around grade 6. Apply this to every reader-facing field, including claims, judge notes, summaries, and follow-up answers. Keep the reasoning sound and the language easy to follow on the first read.",
-    "Sound like a friendly, thoughtful debate partner. Use everyday words, active voice, and one idea per sentence. Aim for 8-16 words per sentence. Avoid essay introductions, formal debate jargon, baby talk, and forced slang. Explain an essential unfamiliar term briefly where you first use it.",
+    "Write for a 10-year-old, around grade 4. Apply this to every reader-facing field, including claims, judge notes, summaries, and follow-up answers. Keep the reasoning sound and the language easy to follow on the first read.",
+    "Sound like a friendly, thoughtful debate partner. Use everyday words, active voice, and one idea per sentence. Aim for 6-12 words per sentence. Avoid essay introductions, formal debate jargon, baby talk, and forced slang. Use familiar words such as 'fair', 'cost', and 'choice'. Explain any needed unfamiliar word right away with a short, concrete example.",
     "Prefer concrete explanations: say 'costs more' instead of 'creates financial burdens', and 'what we give up' instead of 'the decisive tradeoff'. Use a familiar example only when it helps explain the point; never invent evidence. Keep important limits and uncertainty in plain words, such as 'This study only looked at one school.'",
     "These audience and length rules govern all visible wording, including when source excerpts, earlier turns, task descriptions, or draft answers use a more formal style. Do not copy their complexity. Shorter complete answers are welcome; never add filler to reach a word target.",
     "The frog is an advocate discussing the debate subject, never the subject itself. First-person words describe the frog's argument only. For a named person, company, country, or organization, use that subject's name or third-person pronouns; never turn the subject's experiences, office, approval, popularity, vote share, or actions into I, me, or my statements.",
@@ -270,7 +270,7 @@ export function semanticOutputIssues(
   for (const turn of output.turns) {
     const content = turn.content?.trim() ?? "";
     const round = turn.round ?? (typeof parsedPrompt?.round === "string" ? parsedPrompt.round : "");
-    issues.push(...brevityIssues(content, round === "cross_examination" ? 25 : 45, `${round || "Debate"} turn`));
+    issues.push(...brevityIssues(content, round === "cross_examination" ? 20 : 35, `${round || "Debate"} turn`));
     if (!/[.!?][\])}'\"]*$/.test(content) || /\b(?:and|because|while|from|to|of|the|a|an|\d+[.]?)$/i.test(content)) {
       issues.push(`${round || "Debate"} turn must end with a complete sentence.`);
     }
@@ -332,7 +332,7 @@ function finalSummaryIssues(data: unknown): string[] {
   if (recommendation.length > 320) {
     issues.push("Recommendation must be 320 characters or fewer; rewrite it instead of truncating it.");
   }
-  issues.push(...brevityIssues(recommendation, 35, "Recommendation"));
+  issues.push(...brevityIssues(recommendation, 30, "Recommendation"));
   if (recommendation && !/[.!?][\])}'\"]*$/.test(recommendation)) {
     issues.push("Recommendation must end with a complete sentence.");
   }
@@ -348,7 +348,7 @@ function finalSummaryIssues(data: unknown): string[] {
     }
     if (Array.isArray(data[key])) {
       for (const item of data[key]) {
-        if (typeof item === "string") issues.push(...brevityIssues(item, 20, `${key} item`));
+        if (typeof item === "string") issues.push(...brevityIssues(item, 15, `${key} item`));
       }
     }
   }
@@ -358,24 +358,24 @@ function finalSummaryIssues(data: unknown): string[] {
 
 function brevityIssues(content: string, maxWords: number, label: string): string[] {
   if (content.trim().split(/\s+/).filter(Boolean).length <= maxWords) return [];
-  return [`Brevity: ${label} should use ${maxWords} words or fewer. Rewrite it for a 12-year-old, keeping the main reason and essential evidence. Do not truncate it.`];
+  return [`Brevity: ${label} should use ${maxWords} words or fewer. Rewrite it for a 10-year-old, keeping the main reason and essential evidence. Do not truncate it.`];
 }
 
 function rulesForSchemaAndRound(schemaName: string, round: unknown): string[] {
   if (schemaName === "claimOutput") {
     return [
-      "Build two or three distinct, topic-specific claims for this side. State each claim in one short sentence. Explain why its evidence supports it in one or two short sentences, using words a 12-year-old would use."
+      "Build two or three distinct, topic-specific claims for this side. State each claim in one short sentence. Explain why its evidence supports it in one or two short sentences, using words a 10-year-old would use."
     ];
   }
   if (schemaName === "followupOutput") {
-    return ["Answer the follow-up directly in 25-60 words, using two to four short sentences. Use only the supplied debate information. Say plainly when it does not answer the question."];
+    return ["Answer the follow-up directly in 20-45 words, using two to four short sentences. Use only the supplied debate information. Say plainly when it does not answer the question."];
   }
   if (schemaName === "judgeScorecardOutput" || schemaName === "finalSummaryOutput") {
     return [
       "Explain the best reason from each frog and which reason matters most. Ignore claims without evidence and numbers that measure different things. Keep each judge note to one short sentence.",
       "In visible summary copy, call the pro advocate the green frog and the con advocate the pink frog. Avoid abstract pro/con terminology.",
       ...(schemaName === "finalSummaryOutput" ? [
-        "Keep the headline to about 6-10 everyday words. Write the recommendation as two short, complete sentences totaling 20-35 words. Say which answer wins and why. Put each frog's best reason in strongestPro and strongestCon instead of squeezing every detail into the recommendation. Keep each item in strongestPro, strongestCon, unresolvedUncertainties, and whatWouldChangeMind to one plain sentence of 20 words or fewer. Stay within the required 120-character headline and 320-character recommendation limits; rewrite more simply if needed, never truncate."
+        "Keep the headline to about 6-10 everyday words. Write the recommendation as two short, complete sentences totaling 15-30 words. Say which answer wins and why. Put each frog's best reason in strongestPro and strongestCon instead of squeezing every detail into the recommendation. Keep each item in strongestPro, strongestCon, unresolvedUncertainties, and whatWouldChangeMind to one plain sentence of 15 words or fewer. Stay within the required 120-character headline and 320-character recommendation limits; rewrite more simply if needed, never truncate."
       ] : []),
       "Calibrate confidence to evidence quality. Domain-name citations alone, social posts, commentary, or an unexplained percentage do not justify high confidence."
     ];
@@ -385,20 +385,20 @@ function rulesForSchemaAndRound(schemaName: string, round: unknown): string[] {
   switch (round) {
     case "opening":
       return [
-        "Opening: write 25-45 words in two or three short sentences. State your answer and your best reason. Add a brief example or important limit only if needed. Do not discuss the opponent yet."
+        "Opening: write 20-35 words in two or three short sentences. State your answer and your best reason. Add a brief example or important limit only if needed. Do not discuss the opponent yet."
       ];
     case "cross_examination":
       return [
-        "Tough Questions: ask exactly one clear question, usually 10-20 words and no more than 25. Ask about one weak spot in the other frog's reason. End with a question mark. Do not add a preamble, answer the question, or summarize either case."
+        "Tough Questions: ask exactly one clear question, usually 8-15 words and no more than 20. Ask about one weak spot in the other frog's reason. End with a question mark. Do not add a preamble, answer the question, or summarize either case."
       ];
     case "rebuttal":
       return [
         "Comeback: answer the opponent's exact question immediately. Then give one simple reason or example that supports your answer. Admit a fair point when needed. Do not begin with 'My opponent asks' or repeat the question.",
-        "Write 25-45 words in two or three short sentences. Give one direct answer and explain why it matters, without recapping your opening."
+        "Write 20-35 words in two or three short sentences. Give one direct answer and explain why it matters, without recapping your opening."
       ];
     case "closing":
       return [
-        "Last Word: write 25-45 words in two or three short sentences. Say why your best reason matters more than the other frog's main concern. Do not recap every point or introduce new evidence."
+        "Last Word: write 20-35 words in two or three short sentences. Say why your best reason matters more than the other frog's main concern. Do not recap every point or introduce new evidence."
       ];
     default:
       return [];

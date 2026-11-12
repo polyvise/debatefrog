@@ -10,11 +10,11 @@ import type { DebateRetryProps } from "@/components/debate-retry";
 
 describe("reading time", () => {
   it.each([
-    [0, 0, 6000],
-    [50, 50, 6000],
-    [51, 50, 7000],
-    [60, 60, 10000],
-    [80, 20, 12000]
+    [0, 0, 8000],
+    [50, 50, 8000],
+    [51, 50, 9000],
+    [60, 60, 12000],
+    [80, 20, 14000]
   ])("gives %i- and %i-word statements a %ims pause", (proWords, conWords, expectedMs) => {
     expect(roundReadingHoldMs(["word\n ".repeat(proWords), "word ".repeat(conWords)])).toBe(expectedMs);
   });
@@ -116,7 +116,7 @@ describe("pond theater playback", () => {
     expect(container.querySelector(".frog-research-kit")).toBeNull();
   });
 
-  it("finishes both statements, holds for six seconds, and buffers arriving turns", () => {
+  it("finishes both statements, holds for eight seconds, and buffers arriving turns", () => {
     const pro = turn("pro", "More time outside helps children concentrate. ".repeat(8).trim());
     const con = turn("con", "We also need enough time for lessons. ".repeat(7).trim());
     const next = turn("pro", "How would the schedule change?", "cross_examination");
@@ -129,15 +129,15 @@ describe("pond theater playback", () => {
     expect(text("pro")).toBe(pro.content);
     advance(con.content.length * 20);
     expect(text("con")).toBe(con.content);
-    expect(container.querySelector('[role="timer"]')?.textContent).toBe("Next round in 6s");
+    expect(container.querySelector('[role="timer"]')?.textContent).toBe("Next round in 8s");
 
     advance(3000);
     render(live([pro, con, next]));
-    expect(container.querySelector('[role="timer"]')?.textContent).toBe("Next round in 3s");
+    expect(container.querySelector('[role="timer"]')?.textContent).toBe("Next round in 5s");
     expect(container.querySelector(".pt-plaque")?.textContent).toContain("Round 1");
     expect(text("pro")).toBe(pro.content);
     expect(text("con")).toBe(con.content);
-    advance(2999);
+    advance(4999);
     expect(container.querySelector(".pt-plaque")?.textContent).toContain("Round 1");
     advance(1);
     expect(container.querySelector(".pt-plaque")?.textContent).toContain("Round 2");
@@ -151,13 +151,13 @@ describe("pond theater playback", () => {
     const pro = turn("pro", Array(80).fill("word").join(" ") + ".");
     const con = turn("con", Array(20).fill("word").join(" ") + ".");
     render(live([pro, con]));
-    expect(container.querySelector('[role="timer"]')?.textContent).toBe("Next round in 12s");
+    expect(container.querySelector('[role="timer"]')?.textContent).toBe("Next round in 14s");
     advance(6000);
     const next = turn("pro", "Next round.", "cross_examination");
     render(live([pro, con, next]));
-    expect(container.querySelector('[role="timer"]')?.textContent).toBe("Next round in 6s");
+    expect(container.querySelector('[role="timer"]')?.textContent).toBe("Next round in 8s");
     expect(text("pro")).toBe(pro.content);
-    advance(5999);
+    advance(7999);
     expect(container.querySelector(".pt-plaque")?.textContent).toContain("Round 1");
     advance(1);
     expect(text("pro")).toBe(next.content);
@@ -168,7 +168,7 @@ describe("pond theater playback", () => {
     render(live([turn("pro", "Yes."), turn("con", "No.")]));
     advance(80);
     advance(60);
-    advance(5999);
+    advance(7999);
     expect(container.querySelector(".pt-bubble-thinking")).toBeNull();
     advance(1);
     expect(container.querySelector(".pt-bubble-thinking")?.textContent).toContain("Yes Frog");
@@ -179,7 +179,7 @@ describe("pond theater playback", () => {
     render(live([turn("pro", "Yes."), turn("con", "No.")]));
     expect(text("pro")).toBe("Yes.");
     expect(text("con")).toBe("No.");
-    advance(5999);
+    advance(7999);
     expect(container.querySelector(".pt-plaque")?.textContent).toContain("Round 1");
     advance(1);
     expect(container.querySelector(".pt-plaque")?.textContent).toContain("Round 2");
@@ -192,7 +192,7 @@ describe("pond theater playback", () => {
     advance(1000);
     render(live([], "new-debate"));
     expect(container.querySelector('[role="timer"]')).toBeNull();
-    advance(6000);
+    advance(8000);
     expect(container.querySelector(".pt-plaque")?.textContent).toContain("Preparing the opening statements");
   });
 
@@ -202,8 +202,8 @@ describe("pond theater playback", () => {
     const state = live(rounds.flatMap((round) => [turn("pro", "Yes.", round), turn("con", "No.", round)]));
     state.status = "judging";
     render(state);
-    for (let index = 0; index < 3; index++) advance(6000);
-    advance(5999);
+    for (let index = 0; index < 3; index++) advance(8000);
+    advance(7999);
     expect(container.querySelector(".judge-thought-bubble")).toBeNull();
     advance(1);
     expect(container.querySelector(".pt-pad-judge .judge-thought-bubble")?.textContent).toContain("Weighing both sides");
@@ -224,7 +224,7 @@ describe("pond theater playback", () => {
       const state = live(rounds.flatMap((round) => [turn("pro", "Yes.", round), turn("con", "No.", round)]));
       state.status = "judging";
       render(state);
-      for (let index = 0; index < 4; index++) advance(6000);
+      for (let index = 0; index < 4; index++) advance(8000);
       expect(container.querySelector(".judge-thought-bubble")).not.toBeNull();
       render({ ...state, status, done: true, errorMessage: "The judge couldn't finish." });
       expect(container.querySelector(".judge-thought-bubble")).toBeNull();
@@ -239,7 +239,7 @@ describe("pond theater playback", () => {
     const state = live(rounds.flatMap((round) => [turn("pro", "Yes.", round), turn("con", "No.", round)]));
     render({ ...state, status: "partial", done: true });
     expect(container.querySelector('[role="alert"]')).toBeNull();
-    for (let index = 0; index < 4; index++) advance(6000);
+    for (let index = 0; index < 4; index++) advance(8000);
     expect(container.querySelector('[role="alert"]')).not.toBeNull();
     expect(container.querySelector(".judge-thought-bubble")).toBeNull();
   });
@@ -250,7 +250,7 @@ describe("pond theater playback", () => {
     const state = { ...live(rounds.flatMap((round) => [turn("pro", "Yes.", round), turn("con", "No.", round)])), status: "partial" as const, done: true };
     const onRetry = vi.fn();
     render(state, { onRetry });
-    for (let index = 0; index < 4; index++) advance(6000);
+    for (let index = 0; index < 4; index++) advance(8000);
     const button = container.querySelector<HTMLButtonElement>('.pt-failed button')!;
     expect(button.textContent).toContain("Try this step again");
     act(() => button.click());
@@ -277,9 +277,9 @@ describe("pond theater playback", () => {
       strongestCon: [], unresolvedUncertainties: [], whatWouldChangeMind: [], confidence: 0.7
     };
     render(state);
-    for (let index = 0; index < 3; index++) advance(6000);
-    expect(container.querySelector('[role="timer"]')?.textContent).toBe("Judge’s turn in 6s");
-    advance(5999);
+    for (let index = 0; index < 3; index++) advance(8000);
+    expect(container.querySelector('[role="timer"]')?.textContent).toBe("Judge’s turn in 8s");
+    advance(7999);
     expect(container.querySelector(".pt-plaque")?.textContent).toContain("Round 4");
     expect(text("pro")).toBe("Yes.");
     expect(text("con")).toBe("No.");

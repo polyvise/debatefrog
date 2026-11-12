@@ -1,6 +1,6 @@
 # Debatefrog question-entry surface
 
-Mode: Operate. A 12-year-old chooses a question and starts a debate.
+Mode: Operate. A 10-year-old chooses a question and starts a debate.
 
 ## Direction contract
 

@@ -70,7 +70,7 @@ describe("Debatefrog brevity repair", () => {
     expect(generate).toHaveBeenCalledTimes(2);
     const repair = JSON.parse(generate.mock.calls[1][0].prompt);
     expect(repair.outputToRepair).toEqual(response(longAnswer).data);
-    expect(repair.semanticRepairRequired).toEqual([expect.stringContaining("45 words or fewer")]);
+    expect(repair.semanticRepairRequired).toEqual([expect.stringContaining("35 words or fewer")]);
     expect(result.data).toEqual(response(shortAnswer).data);
   });
 
@@ -131,7 +131,7 @@ describe("Debatefrog generation guardrails", () => {
     expect(parsed.rules.some((rule) => rule.startsWith("Start by naming"))).toBe(false);
     expect(parsed.rules.some((rule) => rule.includes("answer the opponent's exact question immediately"))).toBe(true);
     expect(parsed.rules.some((rule) => rule.includes("never the subject itself"))).toBe(true);
-    expect(parsed.rules.some((rule) => rule.includes("12-year-old"))).toBe(true);
+    expect(parsed.rules.some((rule) => rule.includes("10-year-old"))).toBe(true);
     expect(parsed.rules.some((rule) => rule.includes("speak as the frog"))).toBe(true);
   });
 
@@ -211,7 +211,7 @@ describe("Debatefrog generation guardrails", () => {
         role: "pro advocate", schemaName: "debateTurnOutput",
         prompt: JSON.stringify({ ...basePrompt, round })
       });
-      expect(prepared.prompt).toContain("25-45 words");
+      expect(prepared.prompt).toContain("20-35 words");
       expect(prepared.prompt).not.toMatch(/45 to (80|85) words/);
       expect(semanticOutputIssues("debateTurnOutput", {
         turns: [{ round, content: "I support longer recess because students need a chance to rest and return to class ready to learn.", sourceIds: [] }]
@@ -233,7 +233,7 @@ describe("Debatefrog generation guardrails", () => {
       })
     });
     expect(prepared.prompt).not.toMatch(/30-60|15-35/);
-    expect(prepared.prompt).toContain("10-20 words");
+    expect(prepared.prompt).toContain("8-15 words");
     expect(prepared.prompt).toContain("End with a question mark");
     expect(prepared.prompt).toContain("Only cite relevant sources");
   });
@@ -243,14 +243,16 @@ describe("Debatefrog generation guardrails", () => {
       const prepared = withDebatefrogGenerationRules({
         role: "judge", schemaName, prompt: JSON.stringify({ rules: [] })
       });
-      expect(prepared.prompt).toContain("12-year-old");
+      expect(prepared.prompt).toContain("10-year-old");
+      expect(prepared.prompt).toContain("grade 4");
+      expect(prepared.prompt).toContain("6-12 words per sentence");
       expect(prepared.prompt).toContain("everyday words");
       expect(prepared.prompt).toContain("never invent evidence");
     }
   );
 
   it.each([
-    ["opening", 45], ["rebuttal", 45], ["closing", 45], ["cross_examination", 25]
+    ["opening", 35], ["rebuttal", 35], ["closing", 35], ["cross_examination", 20]
   ])("requests a rewrite above the %s word limit without imposing a minimum", (round, limit) => {
     const content = `${Array(Number(limit)).fill("word").join(" ")}${round === "cross_examination" ? "?" : "."}`;
     const prompt = JSON.stringify({ round });

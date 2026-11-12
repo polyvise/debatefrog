@@ -90,7 +90,7 @@ components:
 
 **Creative North Star: "The existing pond theater"**
 
-Question entry is the entrance to the existing pond theater. Dark teal surroundings, a dusk sky, familiar frogs, and a parchment form connect the welcome and debate views. The operating task is choosing a question and starting a debate, with plain language suitable for a 12-year-old.
+Question entry is the entrance to the existing pond theater. Dark teal surroundings, a dusk sky, familiar frogs, and a parchment form connect the welcome and debate views. The operating task is choosing a question and starting a debate, with plain language suitable for a 10-year-old.
 
 This is a record of the implemented identity and welcome refinement, not a replacement brand. Sources: `src/app/globals.css`, `tailwind.config.ts`, `froglings-hero.tsx`, `froglings-workspace.tsx`, `pond-theater.tsx`, and `theater-frog.tsx`. Surface direction lives in `docs/design/landing.md`. This product presentation belongs in Debatefrog; reusable debate execution remains in Polyvise Core.
 

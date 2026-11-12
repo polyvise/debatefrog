@@ -1,7 +1,7 @@
 /** Keep the completed round visible while generation continues independently. */
-export const ROUND_HOLD_MS = 6000;
+export const ROUND_HOLD_MS = 8000;
 
-/** Fifty words is a typical statement within our 30–60-word prompt target.
+/** Keep extra reading time for statements longer than fifty words.
  * Add reading time for each longer statement; a short reply doesn't cancel it.
  */
 export function roundReadingHoldMs(statements: readonly string[]): number {
