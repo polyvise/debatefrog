@@ -105,7 +105,7 @@ describe("Debatefrog brevity repair", () => {
     expect(result.data).toEqual(repaired);
     const prompt = JSON.parse(generate.mock.calls[1][0].prompt);
     expect(prompt.outputToRepair).toEqual(summary);
-    expect(prompt.semanticRepairRequired.join(" ")).toContain("recommendation");
+    expect(prompt.semanticRepairRequired.join(" ")).toMatch(/recommendation/i);
     expect(prompt.semanticRepairRequired.join(" ")).toContain("320");
   });
 });

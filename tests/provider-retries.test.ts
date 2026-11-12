@@ -71,6 +71,29 @@ describe("bounded model retries", () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
+  it("honors Core's remaining call budget for transport failures", async () => {
+    const fetch = vi.fn().mockResolvedValue(failure(503));
+    vi.stubGlobal("fetch", fetch);
+    await expect(provider().generateStructured({ ...request, maxAttempts: 1 })).rejects.toBeInstanceOf(LlmProviderFailure);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not start an output repair after the shared budget is spent", async () => {
+    const fetch = vi.fn().mockResolvedValue(success({ turns: [{ ...data.turns[0], sourceIds: ["invented"] }] }));
+    vi.stubGlobal("fetch", fetch);
+    await expect(provider().generateStructured({ ...request, maxAttempts: 1 })).rejects.toThrow("unknown source id");
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a usable answer when no budget remains for a style rewrite", async () => {
+    const wordy = { turns: [{ ...data.turns[0], content: "More time outside helps us rest. ".repeat(8).trim() }] };
+    const fetch = vi.fn().mockResolvedValue(success(wordy));
+    vi.stubGlobal("fetch", fetch);
+    const result = await provider().generateStructured({ ...request, maxAttempts: 1 });
+    expect(result.data).toEqual(wordy);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
   it("shares three calls across transport recovery and output repair", async () => {
     const invalid = { turns: [{ ...data.turns[0], sourceIds: ["made-up"] }] };
     const fetch = vi.fn()

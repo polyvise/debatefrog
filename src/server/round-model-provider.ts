@@ -59,8 +59,9 @@ export class RoundModelLlmProvider implements LlmProvider {
   }> {
     const model = this.modelForRole(request.role);
     const started = Date.now();
-    const provider = this.providerForModel(model, MAX_TRANSPORT_ATTEMPTS);
-    const prepared = withDebatefrogGenerationRules(request);
+    const budget = Math.max(1, Math.min(MAX_STAGE_CALLS, this.config.llmMaxAttempts, request.maxAttempts ?? MAX_STAGE_CALLS));
+    const provider = this.providerForModel(model, Math.min(MAX_TRANSPORT_ATTEMPTS, budget));
+    const prepared = withDebatefrogGenerationRules({ ...request, maxAttempts: budget });
     const first = await provider.generateStructured<T>(prepared);
     const issues = generationOutputIssues(request.schemaName, first.data, prepared.prompt);
 
@@ -70,8 +71,13 @@ export class RoundModelLlmProvider implements LlmProvider {
 
     const firstIsUsable = !issues.some(isBlockingSemanticIssue);
     const firstSnapshot = withValidationFailure(first.snapshot, issues);
-    const remainingCalls = MAX_STAGE_CALLS - (first.snapshot.attempts?.length || 1);
-    const repairedRequest = withRepairInstructions(prepared, issues, first.data);
+    const remainingCalls = budget - (first.snapshot.attempts?.length || 1);
+    if (remainingCalls <= 0) {
+      if (firstIsUsable) return first;
+      const message = `Generated ${request.schemaName} failed validation: ${issues.join(" ")}`;
+      throw new LlmProviderFailure(message, { ...firstSnapshot, failure: message });
+    }
+    const repairedRequest = withRepairInstructions({ ...prepared, maxAttempts: remainingCalls }, issues, first.data);
     let repaired: { data: T; snapshot: ModelSnapshot };
     try {
       // A cosmetic improvement is not worth retrying an outage when we already
@@ -119,9 +125,8 @@ export class RoundModelLlmProvider implements LlmProvider {
     const modelConfig: DebateRuntimeConfig = {
       ...this.config,
       llmMaxAttempts: attempts,
-      // The shared provider retries a second response format after *any*
-      // strict-schema failure, even authorization errors. Use JSON-object
-      // mode with the schema still in the prompt and validate below instead.
+      // Keep Debatefrog's JSON-object generation policy. The shared schema
+      // and product-specific evidence/age checks validate the answer below.
       useStrictJsonSchema: false,
       llmTimeoutMs: Math.min(this.config.llmTimeoutMs, 45_000),
       apiRetryBaseDelayMs: Math.min(Math.max(this.config.apiRetryBaseDelayMs, 1_000), 5_000),
