@@ -312,29 +312,29 @@ function PondPerformance({ live, ...retry }: { live: FroglingsLiveState } & Deba
 // on every render.
 // -------------------------------------------------------------------------
 
-function PondScenery() {
+export function PondScenery({ still = false }: { still?: boolean }) {
   const stars = useMemo(
     () =>
       Array.from({ length: 12 }, (_, index) => ({
         id: index,
-        left: 4 + Math.random() * 92,
-        top: 3 + Math.random() * 24,
-        delay: Math.random() * 4
+        left: still ? 4 + (index * 17) % 92 : 4 + Math.random() * 92,
+        top: still ? 3 + (index * 7) % 24 : 3 + Math.random() * 24,
+        delay: still ? 0 : Math.random() * 4
       })),
-    []
+    [still]
   );
   const fireflies = useMemo(
     () =>
       Array.from({ length: 8 }, (_, index) => ({
         id: index,
-        left: 6 + Math.random() * 88,
-        top: 32 + Math.random() * 44,
-        driftDelay: Math.random() * 6,
-        flickerDelay: Math.random() * 3,
-        driftDuration: 7 + Math.random() * 6,
-        flickerDuration: 2 + Math.random() * 2
+        left: still ? 6 + (index * 13) % 88 : 6 + Math.random() * 88,
+        top: still ? 32 + (index * 11) % 44 : 32 + Math.random() * 44,
+        driftDelay: still ? 0 : Math.random() * 6,
+        flickerDelay: still ? 0 : Math.random() * 3,
+        driftDuration: still ? 7 : 7 + Math.random() * 6,
+        flickerDuration: still ? 2 : 2 + Math.random() * 2
       })),
-    []
+    [still]
   );
 
   return (
@@ -413,7 +413,7 @@ function Reeds({ className }: { className: string }) {
 // Frogs on lily pads
 // -------------------------------------------------------------------------
 
-function LilyPad({ small = false }: { small?: boolean }) {
+export function LilyPad({ small = false }: { small?: boolean }) {
   return (
     <svg className={small ? "pt-lily pt-lily-small" : "pt-lily"} viewBox="0 0 180 44" aria-hidden="true">
       <ellipse cx="90" cy="22" rx="86" ry="19" fill="#3f8a5c" />

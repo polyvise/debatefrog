@@ -62,6 +62,7 @@ import { useResearchActivities, researchActivityLabel } from "@/components/use-r
 import { useJudgeEntranceCroak } from "@/components/use-judge-entrance-croak";
 import { judgeCueOptions, FrogSoundsContext, useFrogSounds } from "@/components/use-frog-sounds";
 import { FroglingsIntro } from "@/components/froglings-intro";
+import { FroglingsHero } from "@/components/froglings-hero";
 import { PondTheater } from "@/components/pond-theater";
 import { roundReadingHoldMs } from "@/lib/froglings-pacing";
 import { watchDebate } from "@/lib/watch-debate";
@@ -102,14 +103,6 @@ import type {
   Scorecard,
   PlaceholderInfo
 } from "@polyvise/core/debate/types";
-
-const kidPrompts = [
-  "Should schools have longer recess?",
-  "Should kids be allowed to vote?",
-  "Should video games count as exercise?",
-  "Should pets be allowed at school?",
-  "Should homework be banned?"
-];
 
 type StartCountdownCue = {
   delayMs: number;
@@ -531,9 +524,8 @@ export function FroglingsWorkspace() {
     }
   }, []);
 
-  // While a debate is playing in theater mode, dim the whole page to the
-  // stage's swamp-water palette (see body.theater-ambient in globals.css).
-  const theaterAmbient = viewMode === "theater" && live !== null;
+  // Question entry and the theater share the same pond surroundings.
+  const theaterAmbient = live === null || viewMode === "theater";
   useEffect(() => {
     if (typeof document === "undefined") return;
     document.body.classList.toggle("theater-ambient", theaterAmbient);
@@ -714,7 +706,7 @@ export function FroglingsWorkspace() {
   }
 
   return (
-    <main className="mx-auto w-full max-w-[960px] px-4 py-6 sm:py-10">
+    <main className={`mx-auto w-full max-w-[960px] px-4 py-6 sm:py-10${!live ? " welcome-workspace" : ""}`}>
       <header className="flex flex-wrap items-center justify-between gap-3">
         <Link
           href={"/" as Route}
@@ -1359,121 +1351,6 @@ function storeUserPreferences(preferences: UserPreferences) {
   } catch {
     // ignore storage failures
   }
-}
-
-// -------------------------------------------------------------------------
-// Question entry
-// -------------------------------------------------------------------------
-
-function FroglingsHero({
-  subject,
-  onSubjectChange,
-  isSubmitting,
-  error,
-  onSubmit
-}: {
-  subject: string;
-  onSubjectChange: (value: string) => void;
-  isSubmitting: boolean;
-  error: string | null;
-  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
-}) {
-  const [isQuestionFocused, setIsQuestionFocused] = useState(false);
-  const exampleQuestion = kidPrompts[0];
-
-  return (
-    <section className="mt-6 grid gap-8 lg:mt-10 lg:grid-cols-[minmax(0,1fr)_minmax(320px,420px)]">
-      <div className="flex flex-col justify-center">
-        <h1
-          className="font-black leading-[1.12] text-pond"
-          style={{ fontSize: "clamp(2.4rem, 6vw, 4rem)" }}
-        >
-          Two sides.
-          <br />
-          One judge.
-          <br />
-          One big question.
-        </h1>
-        <p className="mt-4 max-w-[480px] text-base leading-relaxed text-ink/80">
-          One YES frog and one NO frog will debate your question. The judge frog picks the winner.
-          You get to watch the whole thing!
-        </p>
-        <div className="mt-5 flex items-center gap-3">
-          <div className="flex flex-col items-center">
-            <FunFrog mood="pro" size={64} />
-            <span className="mt-1 text-[11px] font-black uppercase tracking-wide text-pond">
-              YES frog
-            </span>
-          </div>
-          <span className="text-sm font-black text-mud/60">vs.</span>
-          <div className="flex flex-col items-center">
-            <FunFrog mood="con" size={64} />
-            <span className="mt-1 text-[11px] font-black uppercase tracking-wide text-berry">
-              NO frog
-            </span>
-          </div>
-          <span className="text-sm font-black text-mud/60">+</span>
-          <div className="flex flex-col items-center">
-            <FunFrog mood="judge" size={64} />
-            <span className="mt-1 text-[11px] font-black uppercase tracking-wide text-[#5c4583]">
-              Judge frog
-            </span>
-          </div>
-        </div>
-      </div>
-
-      <form
-        onSubmit={onSubmit}
-        className="rounded-2xl border border-mud/20 bg-panel/90 p-5 shadow-lily backdrop-blur"
-      >
-        <label htmlFor="subject" className="text-sm font-extrabold text-mud">
-          What should the frogs argue about?
-        </label>
-        <textarea
-          id="subject"
-          value={subject}
-          onChange={(event) => onSubjectChange(event.target.value)}
-          onFocus={() => setIsQuestionFocused(true)}
-          onBlur={() => setIsQuestionFocused(false)}
-          placeholder={isQuestionFocused ? "" : exampleQuestion}
-          className="mt-1.5 min-h-[100px] w-full resize-y rounded-xl border border-mud/20 bg-white/90 px-3.5 py-3 text-base leading-relaxed text-ink outline-none transition focus:border-leaf"
-        />
-
-        {error ? (
-          <div className="mt-4 rounded-xl border border-berry/40 bg-berry/10 px-3 py-2.5 text-sm text-berry">
-            {error}
-          </div>
-        ) : null}
-
-        <button
-          type="submit"
-          disabled={isSubmitting || subject.trim().length < 4}
-          className="mt-4 inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-br from-pond to-leafDark px-4 text-sm font-black text-white shadow-lily transition hover:opacity-95 disabled:cursor-not-allowed disabled:bg-mud/30 disabled:from-mud/30 disabled:to-mud/30 disabled:shadow-none"
-        >
-          {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-          Start the debate!
-        </button>
-
-        <div className="mt-5">
-          <div className="mb-2 text-[11px] font-extrabold uppercase tracking-wide text-mud/70">
-            Or pick a question
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {kidPrompts.map((prompt) => (
-              <button
-                key={prompt}
-                type="button"
-                onClick={() => onSubjectChange(prompt)}
-                className="rounded-full border border-pond/15 bg-white/70 px-3 py-1.5 text-xs font-semibold text-pond transition hover:bg-mint"
-              >
-                {prompt}
-              </button>
-            ))}
-          </div>
-        </div>
-      </form>
-    </section>
-  );
 }
 
 // -------------------------------------------------------------------------
