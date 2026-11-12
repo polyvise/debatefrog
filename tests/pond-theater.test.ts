@@ -86,6 +86,14 @@ describe("pond theater playback", () => {
     expect(container.querySelector(".pt-pad-pro .frog-research-glass")).not.toBeNull();
     expect(container.querySelector(".pt-pad-con .frog-research-pencil")).not.toBeNull();
     expect(container.querySelector(".pt-pad-judge .frog-research-kit")).toBeNull();
+    advance(4000);
+    expect(container.querySelector(".pt-pad-pro .frog-research-pencil")).not.toBeNull();
+    expect(container.querySelector(".pt-pad-con .frog-research-glass")).not.toBeNull();
+    expect(container.querySelector(".pt-pad-pro .pt-research-label")?.textContent).toBe("Taking notes");
+    expect(container.querySelector(".pt-pad-con .pt-research-label")?.textContent).toBe("Checking sources");
+    advance(4000);
+    expect(container.querySelector(".pt-pad-pro .frog-research-glass")).not.toBeNull();
+    expect(container.querySelector(".pt-pad-con .frog-research-pencil")).not.toBeNull();
     render({ ...state, status: "debating" });
     expect(container.querySelectorAll(".frog-research-kit")).toHaveLength(2);
     expect(container.querySelector(".pt-bubble-thinking")).toBeNull();

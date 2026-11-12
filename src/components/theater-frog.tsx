@@ -63,6 +63,7 @@ interface TheaterFrogProps extends SVGProps<SVGSVGElement> {
   /** When true, the mouth chatters and the throat sac pulses. */
   speaking?: boolean;
   researching?: boolean;
+  researchActivity?: "search" | "notes";
   expression?: TheaterFrogExpression;
   size?: number;
 }
@@ -80,6 +81,7 @@ export function TheaterFrog({
   mood,
   speaking = false,
   researching = false,
+  researchActivity = mood === "con" ? "notes" : "search",
   expression = "idle",
   size = 120,
   className,
@@ -191,7 +193,7 @@ export function TheaterFrog({
       {/* front feet */}
       <ellipse cx="42" cy="93" rx="13" ry="5.5" fill={c.shade} />
       <ellipse cx="78" cy="93" rx="13" ry="5.5" fill={c.shade} />
-      {researching ? <FrogResearchKit activity={mood === "con" ? "notes" : "search"} handColor={c.body} /> : null}
+      {researching ? <FrogResearchKit activity={researchActivity} handColor={c.body} /> : null}
     </svg>
   );
 }

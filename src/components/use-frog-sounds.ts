@@ -35,6 +35,7 @@ import {
 } from "@/lib/audio-manifest";
 
 type Side = "pro" | "con" | "judge";
+type PlayOptions = { random?: boolean; once?: boolean };
 
 // -------------------------------------------------------------------------
 // Shared context so any live renderer (classic bubbles or the pond
@@ -44,7 +45,7 @@ type Side = "pro" | "con" | "judge";
 
 export type FrogSoundsCtx = {
   ready: boolean;
-  play: (side: Side, options?: { random?: boolean }) => void;
+  play: (side: Side, options?: PlayOptions) => void;
   stop: (side: Side) => void;
   beep: (options: { frequency: number; durationMs: number; delayMs?: number; gain?: number }) => void;
   blip: (side: Side) => void;
@@ -81,7 +82,7 @@ const MIME_FOR_FORMAT: Record<AudioFormat, string> = {
  * Picks the best playable URL for a clip, or null if none of its
  * formats exist or the browser can't decode any of them.
  */
-export function pickSourceUrl(clip: AudioClip): string | null {
+function pickSourceUrl(clip: AudioClip): string | null {
   if (typeof window === "undefined") return null;
   const probe = document.createElement("audio");
   for (const fmt of FORMAT_PRIORITY) {
@@ -117,8 +118,6 @@ interface IntroLoop {
 }
 
 interface FrogSoundsApi {
-  /** True after the saved mute preference has been read. */
-  preferencesReady: boolean;
   /** True once the AudioContext has been resumed by a user gesture. */
   ready: boolean;
   /** True when the user has muted; persisted to localStorage. */
@@ -127,8 +126,8 @@ interface FrogSoundsApi {
   toggleMute: () => void;
   /** Resume the AudioContext. Safe to call multiple times. */
   unlock: () => Promise<void>;
-  /** Start a loop for a side. No-op if muted or not unlocked. */
-  play: (side: Side, options?: { random?: boolean }) => void;
+  /** Play a side's clip, looping unless once is set. No-op if muted or locked. */
+  play: (side: Side, options?: PlayOptions) => void;
   /** Fade and stop the loop for a side. */
   stop: (side: Side) => void;
   /** Play a short synthesized cue. No-op if muted or not unlocked. */
@@ -154,7 +153,6 @@ export function useFrogSounds(): FrogSoundsApi {
   const poolRef = useRef<LoadedClip[]>([]);
   const [ready, setReady] = useState(false);
   const [muted, setMuted] = useState<boolean>(false);
-  const [preferencesReady, setPreferencesReady] = useState(false);
 
   // Hydrate persisted mute setting once on mount.
   useEffect(() => {
@@ -165,7 +163,6 @@ export function useFrogSounds(): FrogSoundsApi {
     } catch {
       // localStorage may be disabled (private mode, etc.); fail open.
     }
-    setPreferencesReady(true);
   }, []);
 
   // When mute toggles, immediately reflect that on the master gain
@@ -196,9 +193,9 @@ export function useFrogSounds(): FrogSoundsApi {
     if (typeof window === "undefined") return;
     if (ctxRef.current) {
       if (ctxRef.current.state === "suspended") {
-        await ctxRef.current.resume();
+        try { await ctxRef.current.resume(); } catch { return; }
       }
-      setReady(true);
+      setReady(ctxRef.current.state === "running");
       return;
     }
 
@@ -208,6 +205,11 @@ export function useFrogSounds(): FrogSoundsApi {
     if (!AudioCtor) return;
     const ctx = new AudioCtor();
     ctxRef.current = ctx;
+    // Resume inside the Start button gesture, before fetching clips can
+    // consume transient browser activation. Handle denial without rejecting.
+    const resumed = ctx.state === "suspended"
+      ? ctx.resume().then(() => true, () => false)
+      : Promise.resolve(true);
 
     // Master gain — gates the whole hook for mute.
     const master = ctx.createGain();
@@ -245,10 +247,10 @@ export function useFrogSounds(): FrogSoundsApi {
         })
       )
     ).filter((entry): entry is LoadedClip => entry !== null);
+    if (ctxRef.current !== ctx) return;
     poolRef.current = pool;
-
-    if (ctx.state === "suspended") await ctx.resume();
-    setReady(true);
+    const didResume = await resumed;
+    if (ctxRef.current === ctx) setReady(didResume && ctx.state === "running");
   }, [muted]);
 
   const stop = useCallback((side: Side) => {
@@ -265,24 +267,17 @@ export function useFrogSounds(): FrogSoundsApi {
       } catch {
         // already stopped
       }
-      src.onended = () => {
-        try {
-          src.disconnect();
-        } catch {
-          // ignore
-        }
-      };
       ch.source = null;
     }
     ch.currentClipId = null;
   }, []);
 
   const play = useCallback(
-    (side: Side, options?: { random?: boolean }) => {
+    (side: Side, options?: PlayOptions) => {
       const ctx = ctxRef.current;
       const channels = channelsRef.current;
       const master = masterGainRef.current;
-      if (!ctx || !channels || !master) return;
+      if (!ctx || ctx.state !== "running" || !channels || !master) return;
       if (muted) return;
 
       // Stop any previous source for this side to avoid overlap.
@@ -317,7 +312,7 @@ export function useFrogSounds(): FrogSoundsApi {
 
         const src = ctx.createBufferSource();
         src.buffer = choice.buffer;
-        src.loop = true;
+        src.loop = !options?.once;
         // Tiny random pitch jitter (~±3 semitones in playbackRate
         // terms) so successive plays of the same clip don't feel
         // identical. Keeps each side recognizably "frog" but with
@@ -331,6 +326,13 @@ export function useFrogSounds(): FrogSoundsApi {
         src.start();
         ch.source = src;
         ch.currentClipId = choice.id;
+        src.onended = () => {
+          src.disconnect();
+          if (ch.source === src) {
+            ch.source = null;
+            ch.currentClipId = null;
+          }
+        };
         return;
       }
 
@@ -372,7 +374,21 @@ export function useFrogSounds(): FrogSoundsApi {
         } catch {
           // already stopped
         }
+        if (ch.source === osc) {
+          ch.source = null;
+          ch.currentClipId = null;
+        }
+        osc.disconnect();
+        lfo.disconnect();
+        tremolo.disconnect();
+        lfoGain.disconnect();
+        tremoloGain.disconnect();
       };
+      if (options?.once) {
+        ch.gain.gain.setValueAtTime(targetGain, ctx.currentTime + 0.3);
+        ch.gain.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.48);
+        osc.stop(ctx.currentTime + 0.5);
+      }
     },
     [muted, stop]
   );
@@ -560,5 +576,5 @@ export function useFrogSounds(): FrogSoundsApi {
     };
   }, []);
 
-  return { ready, muted, preferencesReady, toggleMute, unlock, play, stop, beep, blip, startIntro, stopIntro };
+  return { ready, muted, toggleMute, unlock, play, stop, beep, blip, startIntro, stopIntro };
 }

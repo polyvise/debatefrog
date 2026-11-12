@@ -25,6 +25,7 @@
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { ExternalLink } from "lucide-react";
 import { SlowPrint } from "@/components/slow-print";
+import { useResearchActivities, researchActivityLabel, type ResearchActivity } from "@/components/use-research-activities";
 import { RoundCountdown } from "@/components/round-countdown";
 import { JudgeThoughtBubble } from "@/components/judge-thought-bubble";
 import { TheaterFrog, type TheaterFrogExpression } from "@/components/theater-frog";
@@ -175,6 +176,7 @@ function PondPerformance({ live }: { live: FroglingsLiveState }) {
 
   const isPreshow = phase === "preshow";
   const isResearching = isPreshow && (live.status === "researching" || live.status === "debating") && !live.done;
+  const researchActivities = useResearchActivities(isResearching);
   const proThinking = phase === "debating" && !proTurn;
   const conThinking = phase === "debating" && proDone && !conTurn;
   // Whichever frog currently "has the floor": Yes Frog until it wraps
@@ -229,6 +231,7 @@ function PondPerformance({ live }: { live: FroglingsLiveState }) {
             <PadGroup
               side="pro"
               researching={isResearching}
+              researchActivity={researchActivities.pro}
               speaking={speakingSide === "pro"}
               thinking={proThinking || (isPreshow && !debateBroke)}
               expression={frogExpression("pro", phase, currentRound, activeSide)}
@@ -242,6 +245,7 @@ function PondPerformance({ live }: { live: FroglingsLiveState }) {
             <PadGroup
               side="con"
               researching={isResearching}
+              researchActivity={researchActivities.con}
               speaking={speakingSide === "con"}
               thinking={conThinking || (isPreshow && !debateBroke)}
               expression={frogExpression("con", phase, currentRound, activeSide)}
@@ -421,12 +425,14 @@ function PadGroup({
   speaking,
   thinking,
   researching = false,
+  researchActivity = "search",
   expression
 }: {
   side: "pro" | "con" | "judge";
   speaking: boolean;
   thinking: boolean;
   researching?: boolean;
+  researchActivity?: ResearchActivity;
   expression: TheaterFrogExpression;
 }) {
   const sounds = useContext(FrogSoundsContext);
@@ -469,7 +475,7 @@ function PadGroup({
         onClick={croak}
         aria-label={`${frogName} — tap for a croak`}
       >
-        <TheaterFrog mood={side} speaking={speaking} researching={researching} expression={expression} className="pt-frog" />
+        <TheaterFrog mood={side} speaking={speaking} researching={researching} researchActivity={researchActivity} expression={expression} className="pt-frog" />
         <div className="pt-reflection" aria-hidden="true">
           <TheaterFrog mood={side} speaking={false} expression={expression} className="pt-frog" />
         </div>
@@ -478,7 +484,7 @@ function PadGroup({
       <span className="pt-ripple" aria-hidden="true" />
       {side === "judge" && thinking ? <JudgeThoughtBubble className="pt-judge-thought" /> : null}
       {researching ? (
-        <span className="pt-research-label">{side === "pro" ? "Checking sources" : "Taking notes"}</span>
+        <span className="pt-research-label">{researchActivityLabel(researchActivity)}</span>
       ) : null}
     </div>
   );

@@ -21,6 +21,7 @@ interface FunFrogProps extends SVGProps<SVGSVGElement> {
   /** When true, the mouth chatters open and closed. */
   speaking?: boolean;
   researching?: boolean;
+  researchActivity?: "search" | "notes";
   /** When true, plays a one-shot hop animation. */
   hop?: boolean;
   /** When true, plays the idle bob loop. Defaults to true. */
@@ -39,6 +40,7 @@ export function FunFrog({
   mood = "idle",
   speaking = false,
   researching = false,
+  researchActivity = mood === "con" ? "notes" : "search",
   hop = false,
   bob = true,
   size = 72,
@@ -134,7 +136,7 @@ export function FunFrog({
       </g>
       {researching ? (
         <g transform="translate(-10 -4)">
-          <FrogResearchKit activity={mood === "con" ? "notes" : "search"} handColor={c.body} />
+          <FrogResearchKit activity={researchActivity} handColor={c.body} />
         </g>
       ) : null}
     </svg>

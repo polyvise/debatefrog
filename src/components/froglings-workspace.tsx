@@ -58,7 +58,8 @@ import { FunFrog } from "@/components/fun-frog";
 import { SlowPrint } from "@/components/slow-print";
 import { RoundCountdown } from "@/components/round-countdown";
 import { JudgeThoughtBubble } from "@/components/judge-thought-bubble";
-import { WelcomeCroak } from "@/components/welcome-croak";
+import { useResearchActivities, researchActivityLabel } from "@/components/use-research-activities";
+import { useJudgeEntranceCroak } from "@/components/use-judge-entrance-croak";
 import { FrogSoundsContext, useFrogSounds } from "@/components/use-frog-sounds";
 import { FroglingsIntro } from "@/components/froglings-intro";
 import { PondTheater } from "@/components/pond-theater";
@@ -454,6 +455,7 @@ export function FroglingsWorkspace() {
   const [viewMode, setViewMode] = useState<ViewMode>("theater");
   const eventSourceRef = useRef<EventSource | null>(null);
   const sounds = useFrogSounds();
+  useJudgeEntranceCroak(live?.debateId, sounds);
   const soundControls = useMemo(
     () => ({
       ready: sounds.ready,
@@ -682,7 +684,6 @@ export function FroglingsWorkspace() {
 
   return (
     <main className="mx-auto w-full max-w-[960px] px-4 py-6 sm:py-10">
-      <WelcomeCroak enabled={!live && !isSubmitting} muted={sounds.muted} preferencesReady={sounds.preferencesReady} />
       <header className="flex flex-wrap items-center justify-between gap-3">
         <Link
           href={"/" as Route}
@@ -725,7 +726,6 @@ export function FroglingsWorkspace() {
           <button
             type="button"
             onClick={sounds.toggleMute}
-            data-audio-toggle
             aria-pressed={sounds.muted}
             aria-label={sounds.muted ? "Unmute frog sounds" : "Mute frog sounds"}
             title={sounds.muted ? "Unmute frog sounds" : "Mute frog sounds"}
@@ -1932,6 +1932,7 @@ function DebateStartSequence({
   const hasPlayedCueRef = useRef(false);
   const sequenceRef = useRef<HTMLElement>(null);
   const [countdownTitleActive, setCountdownTitleActive] = useState(false);
+  const researchActivities = useResearchActivities(isPreparingOpening(live));
   const activeStep = startSequenceStepIndex(live);
   const copy = startSequenceCopy(live, countdownTitleActive);
 
@@ -2009,10 +2010,10 @@ function DebateStartSequence({
             ) : null}
           </div>
           <div className="start-frog start-frog-pro">
-            <FunFrog mood="pro" size={64} researching={isPreparingOpening(live)} />
+            <FunFrog mood="pro" size={64} researching={isPreparingOpening(live)} researchActivity={researchActivities.pro} />
           </div>
           <div className="start-frog start-frog-con">
-            <FunFrog mood="con" size={64} researching={isPreparingOpening(live)} />
+            <FunFrog mood="con" size={64} researching={isPreparingOpening(live)} researchActivity={researchActivities.con} />
           </div>
           <div className="start-frog start-frog-judge">
             <FunFrog mood="judge" size={58} bob={false} />
@@ -2071,6 +2072,7 @@ function startSequenceCopy(live: FroglingsLiveState, countdownTitleActive: boole
 }
 
 function FrogIntros({ teams, researching }: { teams: DebateTeam; researching: boolean }) {
+  const researchActivities = useResearchActivities(researching);
   const pro = teams.pro[0];
   const con = teams.con[0];
   const sounds = useContext(FrogSoundsContext);
@@ -2097,23 +2099,23 @@ function FrogIntros({ teams, researching }: { teams: DebateTeam; researching: bo
   return (
     <section className="grid gap-3 md:grid-cols-2">
       <div className="flex items-center gap-3 rounded-2xl border border-leaf/30 bg-mint/40 p-3">
-        <FunFrog mood="pro" size={56} hop researching={researching} />
+        <FunFrog mood="pro" size={56} hop researching={researching} researchActivity={researchActivities.pro} />
         <div className="min-w-0">
           <div className="text-[11px] font-black uppercase tracking-wide text-pond">YES frog</div>
           <div className="mt-0.5 text-sm font-bold text-ink truncate">
             {pro ? froglingsFrogName("pro") : "—"}
           </div>
-          <div className="text-xs text-ink/60">Argues the YES side</div>
+          <div className="text-xs text-ink/60">{researching ? researchActivityLabel(researchActivities.pro) : "Argues the YES side"}</div>
         </div>
       </div>
       <div className="flex items-center gap-3 rounded-2xl border border-berry/30 bg-lily/40 p-3">
-        <FunFrog mood="con" size={56} hop researching={researching} />
+        <FunFrog mood="con" size={56} hop researching={researching} researchActivity={researchActivities.con} />
         <div className="min-w-0">
           <div className="text-[11px] font-black uppercase tracking-wide text-berry">NO frog</div>
           <div className="mt-0.5 text-sm font-bold text-ink truncate">
             {con ? froglingsFrogName("con") : "—"}
           </div>
-          <div className="text-xs text-ink/60">Argues the NO side</div>
+          <div className="text-xs text-ink/60">{researching ? researchActivityLabel(researchActivities.con) : "Argues the NO side"}</div>
         </div>
       </div>
     </section>
