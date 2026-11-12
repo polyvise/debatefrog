@@ -24,6 +24,7 @@
 
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { ExternalLink } from "lucide-react";
+import { DebateTranscript } from "@/components/debate-transcript";
 import { SlowPrint } from "@/components/slow-print";
 import { useResearchActivities, researchActivityLabel, type ResearchActivity } from "@/components/use-research-activities";
 import { RoundCountdown } from "@/components/round-countdown";
@@ -35,7 +36,6 @@ import { buildFroglingsSourceChips } from "@/lib/source-chips";
 import { roundReadingHoldMs } from "@/lib/froglings-pacing";
 import {
   friendlyRound,
-  froglingsBubbleText,
   froglingsFrogName,
   froglingsTheaterCaption,
   froglingsVerdictCopy,
@@ -301,7 +301,7 @@ function PondPerformance({ live, ...retry }: { live: FroglingsLiveState } & Deba
 
       {phase === "verdict" && live.scorecard ? <VerdictCard live={live} tilt={tilt} /> : null}
 
-      {allRoundsHeld && allTurns.length > 0 ? <Transcript live={live} turns={allTurns} /> : null}
+      {allRoundsHeld && allTurns.length > 0 ? <DebateTranscript sources={live.sources} turns={allTurns} /> : null}
     </div>
   );
 }
@@ -715,48 +715,5 @@ function VerdictCard({ live, tilt }: { live: FroglingsLiveState; tilt: VerdictTi
         </div>
       </div>
     </section>
-  );
-}
-
-// -------------------------------------------------------------------------
-// Transcript — the whole debate in plain cards, for re-reading after the
-// performance (and as the screen-reader-friendly record).
-// -------------------------------------------------------------------------
-
-function Transcript({ live, turns }: { live: FroglingsLiveState; turns: RoundTurn[] }) {
-  return (
-    <details className="rounded-2xl border border-mud/20 bg-panel/90 shadow-sm">
-      <summary className="cursor-pointer select-none px-5 py-3.5 text-sm font-black text-pond">
-        Read the whole debate
-      </summary>
-      <div className="space-y-4 px-5 pb-5">
-        {(["opening", "cross_examination", "rebuttal", "closing"] as const).map((round) => {
-          const roundTurns = turns.filter((turn) => turn.round === round);
-          if (roundTurns.length === 0) return null;
-          const meta = friendlyRound[round];
-          return (
-            <article key={round}>
-              <div className="text-sm font-black text-pond">{meta.title}</div>
-              <div className="mt-0.5 text-xs text-ink/65">{meta.blurb}</div>
-              <div className="mt-2 grid gap-3 md:grid-cols-2">
-                {roundTurns.map((turn) => (
-                  <div
-                    key={turn.id}
-                    className={`rounded-xl border px-4 py-3 ${
-                      turn.side === "pro" ? "border-leaf/30 bg-mint/50" : "border-berry/30 bg-lily/40"
-                    }`}
-                  >
-                    <div className="mb-1 text-xs font-black text-ink">
-                      {froglingsFrogName(turn.side === "con" ? "con" : "pro")}
-                    </div>
-                    <p className="text-sm leading-relaxed text-ink/85">{froglingsBubbleText(turn)}</p>
-                  </div>
-                ))}
-              </div>
-            </article>
-          );
-        })}
-      </div>
-    </details>
   );
 }
