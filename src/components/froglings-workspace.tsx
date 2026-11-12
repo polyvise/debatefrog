@@ -56,9 +56,11 @@ import {
 } from "lucide-react";
 import { FunFrog } from "@/components/fun-frog";
 import { SlowPrint } from "@/components/slow-print";
+import { RoundCountdown } from "@/components/round-countdown";
 import { FrogSoundsContext, useFrogSounds } from "@/components/use-frog-sounds";
 import { FroglingsIntro } from "@/components/froglings-intro";
 import { PondTheater } from "@/components/pond-theater";
+import { ROUND_HOLD_MS } from "@/lib/froglings-pacing";
 import { buildFroglingsSourceChips, type FroglingsSourceChip } from "@/lib/source-chips";
 import {
   friendlyRound,
@@ -1467,10 +1469,19 @@ function FroglingsLive({
       {showStartSequence ? (
         <DebateStartSequence live={live} countdownStarted={countdownStarted} />
       ) : null}
-      {live.teams && !preferences.openingSplash ? <FrogIntros teams={live.teams} /> : null}
+      {live.teams && !preferences.openingSplash ? (
+        <FrogIntros teams={live.teams} researching={live.status === "researching" && !live.done} />
+      ) : null}
       {!showStartSequence ? (
         <>
           <Rounds live={live} visibleTurns={staged.visibleTurns} onTurnComplete={staged.showNextTurn} />
+          {staged.roundHoldEndsAt !== null ? (
+            <RoundCountdown
+              endsAt={staged.roundHoldEndsAt}
+              isClosingRound={staged.visibleTurns.at(-1)?.round === "closing"}
+              className="text-center text-sm font-semibold text-pond"
+            />
+          ) : null}
           <Verdict live={live} readyForVerdict={staged.readyForVerdict} />
         </>
       ) : null}
@@ -1683,9 +1694,16 @@ function isStartCountdownStarted(live: FroglingsLiveState) {
 function useStagedFroglingsTurns(live: FroglingsLiveState) {
   const debateTurns = useMemo(() => orderedFroglingsTurns(live.turns), [live.turns]);
   const [visibleCount, setVisibleCount] = useState(0);
+  const [roundHoldEndsAt, setRoundHoldEndsAt] = useState<number | null>(null);
+  const advanceTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     setVisibleCount(debateTurns.length > 0 ? 1 : 0);
+    setRoundHoldEndsAt(null);
+    return () => {
+      if (advanceTimerRef.current !== null) window.clearTimeout(advanceTimerRef.current);
+      advanceTimerRef.current = null;
+    };
   }, [live.debateId]);
 
   useEffect(() => {
@@ -1697,10 +1715,15 @@ function useStagedFroglingsTurns(live: FroglingsLiveState) {
   }, [debateTurns.length]);
 
   const showNextTurn = useCallback(() => {
-    window.setTimeout(() => {
+    if (advanceTimerRef.current !== null) return;
+    const completedTurn = debateTurns[visibleCount - 1];
+    if (completedTurn?.side === "con") setRoundHoldEndsAt(Date.now() + ROUND_HOLD_MS);
+    advanceTimerRef.current = window.setTimeout(() => {
+      advanceTimerRef.current = null;
+      setRoundHoldEndsAt(null);
       setVisibleCount((count) => count + 1);
-    }, 450);
-  }, []);
+    }, completedTurn?.side === "con" ? ROUND_HOLD_MS : 450);
+  }, [debateTurns, visibleCount]);
 
   const visibleTurns = debateTurns.slice(0, visibleCount);
   const readyForVerdict =
@@ -1712,6 +1735,7 @@ function useStagedFroglingsTurns(live: FroglingsLiveState) {
 
   return {
     visibleTurns,
+    roundHoldEndsAt,
     readyForVerdict,
     showNextTurn,
     hasTurns: debateTurns.length > 0,
@@ -1972,10 +1996,10 @@ function DebateStartSequence({
             ) : null}
           </div>
           <div className="start-frog start-frog-pro">
-            <FunFrog mood="pro" size={64} />
+            <FunFrog mood="pro" size={64} researching={live.status === "researching" && !live.done} />
           </div>
           <div className="start-frog start-frog-con">
-            <FunFrog mood="con" size={64} />
+            <FunFrog mood="con" size={64} researching={live.status === "researching" && !live.done} />
           </div>
           <div className="start-frog start-frog-judge">
             <FunFrog mood="judge" size={58} bob={false} />
@@ -2033,7 +2057,7 @@ function startSequenceCopy(live: FroglingsLiveState, countdownTitleActive: boole
   };
 }
 
-function FrogIntros({ teams }: { teams: DebateTeam }) {
+function FrogIntros({ teams, researching }: { teams: DebateTeam; researching: boolean }) {
   const pro = teams.pro[0];
   const con = teams.con[0];
   const sounds = useContext(FrogSoundsContext);
@@ -2060,7 +2084,7 @@ function FrogIntros({ teams }: { teams: DebateTeam }) {
   return (
     <section className="grid gap-3 md:grid-cols-2">
       <div className="flex items-center gap-3 rounded-2xl border border-leaf/30 bg-mint/40 p-3">
-        <FunFrog mood="pro" size={56} hop />
+        <FunFrog mood="pro" size={56} hop researching={researching} />
         <div className="min-w-0">
           <div className="text-[11px] font-black uppercase tracking-wide text-pond">YES frog</div>
           <div className="mt-0.5 text-sm font-bold text-ink truncate">
@@ -2070,7 +2094,7 @@ function FrogIntros({ teams }: { teams: DebateTeam }) {
         </div>
       </div>
       <div className="flex items-center gap-3 rounded-2xl border border-berry/30 bg-lily/40 p-3">
-        <FunFrog mood="con" size={56} hop />
+        <FunFrog mood="con" size={56} hop researching={researching} />
         <div className="min-w-0">
           <div className="text-[11px] font-black uppercase tracking-wide text-berry">NO frog</div>
           <div className="mt-0.5 text-sm font-bold text-ink truncate">

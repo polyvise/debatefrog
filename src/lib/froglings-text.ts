@@ -87,7 +87,7 @@ export function nextExpectedFrogSide(turns: RoundTurn[]): "pro" | "con" {
   return count % 2 === 0 ? "pro" : "con";
 }
 
-/** Shared cleanup before a turn's content is cut down to bubble length. */
+/** Shared cleanup without shortening the frog's argument. */
 function preprocessDebateTurn(turn: RoundTurn): string {
   return stripRhetoricalOpener(simplifyForKids(stripSpeakerPrefix(turn.content, turn.agentName)));
 }
@@ -108,40 +108,12 @@ function stripRhetoricalOpener(text: string): string {
 }
 
 export function froglingsBubbleText(turn: RoundTurn) {
-  const text = preprocessDebateTurn(turn);
-  const sentences = text.match(/[^.!?]+[.!?]+|[^.!?]+$/g)?.map((sentence) => sentence.trim()) ?? [text];
-  const picked: string[] = [];
-
-  for (const sentence of sentences) {
-    if (!sentence) continue;
-    const next = [...picked, sentence].join(" ");
-    if (picked.length >= 2 || next.length > 300) break;
-    picked.push(sentence);
-  }
-
-  const compressed = picked.length > 0 ? picked.join(" ") : text;
-  return trimAtWord(compressed, 320);
+  return preprocessDebateTurn(turn);
 }
 
-/**
- * A shorter, punchier caption for the pond theater's speech bubbles —
- * one sentence, with a second only folded in when the first is quite
- * short. The classic card view and the "read the whole debate"
- * transcript keep the fuller froglingsBubbleText; this is a stage
- * caption meant to be read in one breath while it types, not the
- * complete record.
- */
+/** Live captions and the transcript show the same complete statement. */
 export function froglingsTheaterCaption(turn: RoundTurn) {
-  const text = preprocessDebateTurn(turn);
-  const sentences =
-    text.match(/[^.!?]+[.!?]+|[^.!?]+$/g)?.map((sentence) => sentence.trim()).filter(Boolean) ?? [text];
-
-  const first = sentences[0] ?? text;
-  const second = sentences[1];
-  const shouldAddSecond = Boolean(second) && first.length < 50 && first.length + (second?.length ?? 0) <= 150;
-  const compressed = shouldAddSecond ? `${first} ${second}` : first;
-
-  return trimAtWord(compressed, 150);
+  return froglingsBubbleText(turn);
 }
 
 export function stripSpeakerPrefix(content: string, agentName: string) {

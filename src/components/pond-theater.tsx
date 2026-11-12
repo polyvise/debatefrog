@@ -12,7 +12,7 @@
  *   - debating: one round at a time. Yes Frog's turn types out first;
  *     once it's done it stays put while No Frog's turn types out beside
  *     it, so both comments are visible together. Once both are done the
- *     scene holds for a couple seconds before the next round begins.
+ *     scene holds for six seconds before the next round begins.
  *   - judging: the pond quiets while the judge frog thinks
  *   - verdict: the lily-pad seesaw tips toward the winner, petals
  *     fall, and confidence fills a water jar
@@ -25,9 +25,11 @@
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { ExternalLink } from "lucide-react";
 import { SlowPrint } from "@/components/slow-print";
+import { RoundCountdown } from "@/components/round-countdown";
 import { TheaterFrog, type TheaterFrogExpression } from "@/components/theater-frog";
 import { FrogSoundsContext } from "@/components/use-frog-sounds";
 import { buildFroglingsSourceChips } from "@/lib/source-chips";
+import { ROUND_HOLD_MS } from "@/lib/froglings-pacing";
 import {
   friendlyRound,
   froglingsBubbleText,
@@ -47,10 +49,6 @@ const ROUND_ORDER: DebateRound[] = ["opening", "cross_examination", "rebuttal", 
  *  ~70 chars/sec, since a bubble here disappears at the end of the round
  *  instead of staying on screen the way classic view's cards do. */
 const THEATER_TICK_MS = 20;
-
-/** How long both comments hold on screen, fully typed, before the next
- *  round begins — long enough to reread both without feeling rushed. */
-const ROUND_HOLD_MS = 2600;
 
 type TheaterPhase = "preshow" | "debating" | "judging" | "verdict" | "failed";
 
@@ -106,21 +104,21 @@ function frogExpression(
 }
 
 export function PondTheater({ live }: { live: FroglingsLiveState }) {
+  return <PondPerformance key={live.debateId} live={live} />;
+}
+
+function PondPerformance({ live }: { live: FroglingsLiveState }) {
   const sounds = useContext(FrogSoundsContext);
   const [roundIndex, setRoundIndex] = useState(0);
   const [proDone, setProDone] = useState(false);
+  const [roundHoldEndsAt, setRoundHoldEndsAt] = useState<number | null>(null);
   const [typingSide, setTypingSide] = useState<"pro" | "con" | null>(null);
   const advanceTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
-    setRoundIndex(0);
-    setProDone(false);
-    setTypingSide(null);
-  }, [live.debateId]);
-
-  useEffect(() => {
     return () => {
       if (advanceTimerRef.current !== null) window.clearTimeout(advanceTimerRef.current);
+      advanceTimerRef.current = null;
     };
   }, []);
 
@@ -133,8 +131,10 @@ export function PondTheater({ live }: { live: FroglingsLiveState }) {
   // round.
   const handleConComplete = useCallback(() => {
     if (advanceTimerRef.current !== null) window.clearTimeout(advanceTimerRef.current);
+    setRoundHoldEndsAt(Date.now() + ROUND_HOLD_MS);
     advanceTimerRef.current = window.setTimeout(() => {
       advanceTimerRef.current = null;
+      setRoundHoldEndsAt(null);
       setRoundIndex((index) => index + 1);
       setProDone(false);
       setTypingSide(null);
@@ -169,6 +169,7 @@ export function PondTheater({ live }: { live: FroglingsLiveState }) {
             : "preshow";
 
   const isPreshow = phase === "preshow";
+  const isResearching = isPreshow && live.status === "researching" && !live.done;
   const proThinking = phase === "debating" && !proTurn;
   const conThinking = phase === "debating" && proDone && !conTurn;
   // Whichever frog currently "has the floor": Yes Frog until it wraps
@@ -197,9 +198,6 @@ export function PondTheater({ live }: { live: FroglingsLiveState }) {
       sounds.stop("judge");
     };
   }, [phase, sounds]);
-  useEffect(() => {
-    verdictCroakRef.current = false;
-  }, [live.debateId]);
 
   const speakingSide = phase === "debating" ? typingSide : null;
   const tilt = live.scorecard ? verdictTilt(live.scorecard.recommendation) : "level";
@@ -212,7 +210,7 @@ export function PondTheater({ live }: { live: FroglingsLiveState }) {
         <div className="mt-0.5 text-base leading-snug text-ink">{literalQuestionText(live.subject)}</div>
       </section>
 
-      <section className="pt-stage" aria-label="Pond theater stage">
+      <section className={`pt-stage${phase === "debating" ? " pt-stage-debating" : ""}`} aria-label="Pond theater stage">
         <PondScenery />
 
         <div className="pt-plaque" aria-live="polite">
@@ -225,6 +223,7 @@ export function PondTheater({ live }: { live: FroglingsLiveState }) {
           <div className="pt-troupe">
             <PadGroup
               side="pro"
+              researching={isResearching}
               speaking={speakingSide === "pro"}
               thinking={proThinking || (isPreshow && !debateBroke)}
               expression={frogExpression("pro", phase, currentRound, activeSide)}
@@ -237,6 +236,7 @@ export function PondTheater({ live }: { live: FroglingsLiveState }) {
             />
             <PadGroup
               side="con"
+              researching={isResearching}
               speaking={speakingSide === "con"}
               thinking={conThinking || (isPreshow && !debateBroke)}
               expression={frogExpression("con", phase, currentRound, activeSide)}
@@ -245,7 +245,7 @@ export function PondTheater({ live }: { live: FroglingsLiveState }) {
         )}
 
         {phase === "debating" ? (
-          <>
+          <div className="pt-dialogue">
             {proTurn ? (
               <TheaterBubble
                 key={proTurn.id}
@@ -270,7 +270,14 @@ export function PondTheater({ live }: { live: FroglingsLiveState }) {
                 <ThinkingBubble side="con" />
               )
             ) : null}
-          </>
+            {roundHoldEndsAt !== null ? (
+              <RoundCountdown
+                endsAt={roundHoldEndsAt}
+                isClosingRound={currentRound === "closing"}
+                className="pt-round-countdown"
+              />
+            ) : null}
+          </div>
         ) : null}
 
         {phase === "failed" ? (
@@ -408,11 +415,13 @@ function PadGroup({
   side,
   speaking,
   thinking,
+  researching = false,
   expression
 }: {
   side: "pro" | "con" | "judge";
   speaking: boolean;
   thinking: boolean;
+  researching?: boolean;
   expression: TheaterFrogExpression;
 }) {
   const sounds = useContext(FrogSoundsContext);
@@ -447,7 +456,7 @@ function PadGroup({
     <div
       className={`pt-pad-group pt-pad-${side}${speaking ? " is-speaking-group" : ""}${
         thinking ? " is-thinking" : ""
-      }${posture}`}
+      }${researching ? " is-researching" : ""}${posture}`}
     >
       <button
         type="button"
@@ -455,13 +464,16 @@ function PadGroup({
         onClick={croak}
         aria-label={`${frogName} — tap for a croak`}
       >
-        <TheaterFrog mood={side} speaking={speaking} expression={expression} className="pt-frog" />
+        <TheaterFrog mood={side} speaking={speaking} researching={researching} expression={expression} className="pt-frog" />
         <div className="pt-reflection" aria-hidden="true">
           <TheaterFrog mood={side} speaking={false} expression={expression} className="pt-frog" />
         </div>
       </button>
       <LilyPad />
       <span className="pt-ripple" aria-hidden="true" />
+      {researching ? (
+        <span className="pt-research-label">{side === "pro" ? "Checking sources" : "Taking notes"}</span>
+      ) : null}
     </div>
   );
 }
@@ -497,6 +509,7 @@ function TheaterBubble({
     <div className={`pt-bubble pt-bubble-${side} hop-in`}>
       <div className="pt-bubble-who">{froglingsFrogName(side)}</div>
       <p className="pt-bubble-text">
+        <span className="pt-bubble-reserve" aria-hidden="true">{content}</span>
         <SlowPrint
           text={content}
           tickMs={THEATER_TICK_MS}

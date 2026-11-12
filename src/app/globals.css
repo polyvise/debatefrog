@@ -725,6 +725,48 @@ select:focus-visible {
 
 /* --- plaque + bubbles -------------------------------------------------- */
 
+/* Research is a distinct pose; props stay visible when motion is reduced. */
+.pt-pad-group.is-researching .pt-frog-wrap { width: 144px; }
+.theater-frog.is-researching .theater-frog-pupil { transform: translateY(2.5px); }
+.pt-research-label {
+  position: absolute;
+  bottom: -27px;
+  color: #f6ead2;
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.frog-research-page {
+  transform-origin: 60px 76px;
+  animation: frog-turn-page 5.4s ease-in-out infinite;
+}
+.frog-research-glass { animation: frog-scan-book 5.4s ease-in-out infinite; }
+.frog-research-pencil {
+  transform-origin: 74px 82px;
+  animation: frog-take-notes 2.7s ease-in-out infinite;
+}
+.frog-research-kit :is(.frog-research-page, .frog-research-glass, .frog-research-pencil) {
+  animation-play-state: paused;
+}
+.frog-research-kit.is-active :is(.frog-research-page, .frog-research-glass, .frog-research-pencil) {
+  animation-play-state: running;
+}
+@keyframes frog-turn-page {
+  0%, 68%, 100% { transform: scaleX(1); }
+  80%, 86% { transform: scaleX(-0.95); }
+}
+@keyframes frog-scan-book {
+  0%, 12%, 100% { transform: translate(0, 0); }
+  35%, 50% { transform: translate(17px, 2px); }
+  68%, 86% { transform: translate(4px, -5px); }
+}
+@keyframes frog-take-notes {
+  0%, 12%, 100% { transform: translate(0, 0) rotate(0); }
+  25%, 45% { transform: translate(-3px, 2px) rotate(-7deg); }
+  35%, 55% { transform: translate(2px, 0) rotate(4deg); }
+  75%, 88% { transform: translate(0, -5px) rotate(8deg); }
+}
+
 .pt-plaque {
   position: absolute;
   top: 4.5%;
@@ -753,10 +795,10 @@ select:focus-visible {
 }
 
 .pt-bubble {
-  position: absolute;
-  top: 14%;
+  position: relative;
   z-index: 5;
-  width: min(320px, 40%);
+  width: 100%;
+  min-width: 0;
   background: #fffdf2;
   color: #243027;
   border-radius: 20px 22px 20px 4px;
@@ -773,11 +815,9 @@ select:focus-visible {
   background: #fffdf2;
 }
 
-.pt-bubble-pro { left: 5%; }
 .pt-bubble-pro::after { left: 34px; clip-path: polygon(0 0, 100% 0, 20% 100%); }
 
 .pt-bubble-con {
-  right: 5%;
   border-radius: 22px 20px 4px 20px;
 }
 .pt-bubble-con::after { right: 34px; clip-path: polygon(0 0, 100% 0, 80% 100%); }
@@ -794,12 +834,47 @@ select:focus-visible {
 .pt-bubble-con .pt-bubble-who { color: #a03d56; }
 
 .pt-bubble-text {
+  display: grid;
+  overflow-wrap: anywhere;
   margin: 0;
   font-size: 14px;
   line-height: 1.45;
   font-weight: 600;
   min-height: 3em;
 }
+
+/* Reserve the full statement's height so typing doesn't move the scene. */
+.pt-bubble-text > span { grid-area: 1 / 1; }
+.pt-bubble-reserve { visibility: hidden; }
+
+/* Let full statements determine the stage height, including on phones. */
+.pt-stage-debating {
+  height: auto;
+  min-height: clamp(430px, 62vh, 560px);
+}
+.pt-dialogue {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: 24px;
+  padding: 80px 5% 260px;
+}
+.pt-stage-debating .pt-pad-pro,
+.pt-stage-debating .pt-pad-con { bottom: 45px; }
+.pt-stage-debating .pt-pad-judge { bottom: 90px; }
+
+.pt-round-countdown {
+  grid-column: 1 / -1;
+  justify-self: center;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: #16283c;
+  color: #f6ead2;
+  font-size: 14px;
+  font-weight: 600;
+}
+.pt-round-countdown strong { color: #f0b46a; }
 
 .pt-bubble-sources {
   margin-top: 8px;
@@ -1031,6 +1106,7 @@ select:focus-visible {
 /* --- responsive -------------------------------------------------------- */
 
 @media (max-width: 720px) {
+  .pt-pad-group.is-researching .pt-frog-wrap { width: 112px; }
   .pt-stage { height: clamp(420px, 68vh, 540px); }
   .pt-pad-pro { left: 1%; bottom: 13%; }
   .pt-pad-con { right: 1%; bottom: 13%; }
@@ -1040,14 +1116,10 @@ select:focus-visible {
   .pt-pad-judge .pt-frog-wrap { width: 76px; }
   .pt-lily { width: 120px; height: 30px; }
   .pt-pad-judge .pt-lily { width: 104px; }
-  /* Both frogs' bubbles can be on screen together now (Yes Frog's
-     comment stays up while No Frog's types out), and the narrow mobile
-     width means side-by-side bubbles would overlap — stack them
-     vertically instead, with enough of a gap for a full-length Yes
-     Frog bubble to clear before No Frog's begins. */
-  .pt-bubble { width: min(270px, 62%); top: 10%; }
-  .pt-bubble-pro { left: 3%; }
-  .pt-bubble-con { right: 3%; top: 48%; }
+  .pt-stage-debating { height: auto; }
+  .pt-dialogue { grid-template-columns: minmax(0, 1fr); padding: 74px 5% 230px; }
+  .pt-bubble { width: 94%; }
+  .pt-bubble-con { justify-self: end; }
   .pt-plaque { font-size: 13px; padding: 6px 16px; }
   .pt-reeds { width: 130px; height: 170px; }
   .pt-seat { width: 92px; }
@@ -1071,6 +1143,10 @@ select:focus-visible {
   .theater-frog.is-speaking .theater-frog-throat,
   .pt-thinking-dots span,
   .pt-petal {
+    animation: none !important;
+  }
+
+  .frog-research-kit :is(.frog-research-page, .frog-research-glass, .frog-research-pencil) {
     animation: none !important;
   }
 
