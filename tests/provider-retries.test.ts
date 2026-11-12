@@ -85,6 +85,21 @@ describe("bounded model retries", () => {
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 
+  it("does not repeatedly repair a supported percentage written differently in the source", async () => {
+    const output = { turns: [{ ...data.turns[0],
+      content: "I disagree because a Hill-HarrisX poll found that 84% of registered voters opposed lowering the voting age.",
+      sourceIds: ["poll"]
+    }] };
+    const fetch = vi.fn().mockResolvedValue(success(output));
+    vi.stubGlobal("fetch", fetch);
+    const result = await provider().generateStructured({ ...request, prompt: JSON.stringify({
+      round: "opening", sources: [{ id: "poll", snippet: "A Hill-HarrisX poll found that 84 percent of registered voters opposed lowering the voting age to 16." }]
+    }) });
+    expect(result.data).toEqual(output);
+    expect(result.snapshot.failure).toBeUndefined();
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps a usable answer when no budget remains for a style rewrite", async () => {
     const wordy = { turns: [{ ...data.turns[0], content: "More time outside helps us rest. ".repeat(8).trim() }] };
     const fetch = vi.fn().mockResolvedValue(success(wordy));

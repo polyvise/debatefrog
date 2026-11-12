@@ -296,22 +296,27 @@ export function semanticOutputIssues(
         issues.push(`Turn cites unknown source id ${sourceId}.`);
       }
     }
-    const percentageClaims = content.match(/\b\d+(?:[.,]\s?\d+)?\s*%/g) ?? [];
-    if (percentageClaims.length > 0) {
-      const citedSourceText = (turn.sourceIds ?? [])
-        .map((sourceId) => sourceTextById.get(sourceId) ?? "")
-        .join(" ")
-        .replace(/\s+/g, "");
+    const percentageClaims = percentageValues(content);
+    if (percentageClaims.size > 0) {
+      const citedPercentages = new Set((turn.sourceIds ?? []).flatMap((sourceId) =>
+        [...percentageValues(sourceTextById.get(sourceId) ?? "")]
+      ));
       for (const percentage of percentageClaims) {
-        const normalized = percentage.replace(/\s+/g, "");
-        if (!citedSourceText.includes(normalized)) {
-          issues.push(`Percentage ${normalized} must appear in one of the turn's cited sources.`);
+        if (!citedPercentages.has(percentage)) {
+          issues.push(`Percentage ${percentage}% must appear in one of the turn's cited sources.`);
         }
       }
     }
   }
 
   return [...new Set(issues)];
+}
+
+function percentageValues(text: string): Set<number> {
+  // Compare whole numeric tokens, so "84 percent" supports "84%", but
+  // "184%" and "0.84%" do not. Check written units in generated text too.
+  const matches = text.matchAll(/(?<![\w.,])(\d+(?:[.,]\d+)?)\s*(?:%|per\s*cent\b)/gi);
+  return new Set([...matches].map((match) => Number(match[1].replace(",", "."))));
 }
 
 function finalSummaryIssues(data: unknown): string[] {

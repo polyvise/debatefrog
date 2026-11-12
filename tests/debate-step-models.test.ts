@@ -179,6 +179,32 @@ describe("Debatefrog generation guardrails", () => {
     expect(issues).toEqual([]);
   });
 
+  it.each([
+    ["84%", "84 percent"],
+    ["84 percent", "84%"],
+    ["84 %", "84 PER CENT"],
+    ["49.8%", "49,8 percent"],
+    ["84.0 percent", "84%"]
+  ])("accepts equivalent percentage formats: %s and %s", (claim, evidence) => {
+    expect(semanticOutputIssues("debateTurnOutput", {
+      turns: [{ round: "opening", content: `I disagree because ${claim} of voters opposed the change.`, sourceIds: ["poll"] }]
+    }, JSON.stringify({ sources: [{ id: "poll", snippet: `The poll found that ${evidence} of voters opposed the change.` }] }))).toEqual([]);
+  });
+
+  it.each(["184%", "0.84%", "84.5%", "84 people", "39 percent"])(
+    "rejects percentage claims unsupported by the cited source: %s", (evidence) => {
+      for (const claim of ["84%", "84 percent", "84 per cent"]) {
+        const issues = semanticOutputIssues("debateTurnOutput", {
+          turns: [{ round: "opening", content: `I disagree because ${claim} of voters opposed the change.`, sourceIds: ["poll"] }]
+        }, JSON.stringify({ sources: [
+          { id: "poll", snippet: evidence },
+          { id: "uncited-poll", snippet: "84% of voters opposed the change." }
+        ] }));
+        expect(issues).toContain("Percentage 84% must appear in one of the turn's cited sources.");
+      }
+    }
+  );
+
   it("keeps brevity a prompt target rather than forcing short complete answers to expand", () => {
     for (const round of ["opening", "rebuttal", "closing"]) {
       const prepared = withDebatefrogGenerationRules({
