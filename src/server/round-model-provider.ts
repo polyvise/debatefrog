@@ -99,14 +99,11 @@ export class RoundModelLlmProvider implements LlmProvider {
 }
 
 function isBlockingSemanticIssue(issue: string): boolean {
-  // Detail and repetition are quality targets: they should prompt one rewrite,
+  // Repetition is a quality target: it should prompt one rewrite,
   // but a model ignoring that stylistic repair must not discard the whole
   // debate. Structural, factual-integrity, identity, and completeness failures
   // remain fatal after repair.
-  return !(
-    issue.includes("needs more detail") ||
-    issue === "Comeback must answer directly instead of restating the opponent's question."
-  );
+  return issue !== "Comeback must answer directly instead of restating the opponent's question.";
 }
 
 export function stepForRole(role: string): DebateStepModelKey {
@@ -189,12 +186,6 @@ export function semanticOutputIssues(
   for (const turn of output.turns) {
     const content = turn.content?.trim() ?? "";
     const round = turn.round ?? (typeof parsedPrompt?.round === "string" ? parsedPrompt.round : "");
-    const wordCount = content.split(/\s+/).filter(Boolean).length;
-    const minimumWords = round === "cross_examination" ? 12 : round === "opening" ? 28 : 32;
-
-    if (wordCount < minimumWords) {
-      issues.push(`${round || "Debate"} turn needs more detail (at least ${minimumWords} words).`);
-    }
     if (!/[.!?][\])}'\"]*$/.test(content) || /\b(?:and|because|while|from|to|of|the|a|an|\d+[.]?)$/i.test(content)) {
       issues.push(`${round || "Debate"} turn must end with a complete sentence.`);
     }
@@ -279,6 +270,9 @@ function rulesForSchemaAndRound(schemaName: string, round: unknown): string[] {
     return [
       "Identify the strongest point from each frog and the single hinge that decides the result. Explicitly disregard unsupported claims and incompatible statistic comparisons.",
       "In visible summary copy, call the pro advocate the green frog and the con advocate the pink frog. Avoid abstract pro/con terminology.",
+      ...(schemaName === "finalSummaryOutput" ? [
+        "Keep the headline to about 8-12 words. Write the recommendation as two short, complete sentences totaling about 25-35 words. Briefly contrast the frogs' strongest points and name the deciding reason. Put supporting detail in strongestPro and strongestCon instead of repeating it in the recommendation. Stay comfortably within the required 120-character headline and 320-character recommendation limits; rewrite more simply if needed, never truncate."
+      ] : []),
       "Calibrate confidence to evidence quality. Domain-name citations alone, social posts, commentary, or an unexplained percentage do not justify high confidence."
     ];
   }
@@ -287,20 +281,20 @@ function rulesForSchemaAndRound(schemaName: string, round: unknown): string[] {
   switch (round) {
     case "opening":
       return [
-        "Opening: write about 45 to 80 words. State the position, give two distinct supporting details when evidence allows, and include one honest qualification. Do not discuss the opponent yet."
+        "Opening: write about 30-60 words in one short paragraph. State your position and one strongest reason; add a brief example or essential qualification only if needed. Do not discuss the opponent yet."
       ];
     case "cross_examination":
       return [
-        "Tough Questions: ask exactly one pointed question. Refer to the opponent's claim in no more than eight words and only when necessary. Do not answer the question or summarize either case."
+        "Tough Questions: ask exactly one pointed question in about 15-35 words. Refer to the opponent's claim in no more than eight words and only when necessary. Do not answer the question or summarize either case."
       ];
     case "rebuttal":
       return [
         "Comeback: answer the opponent's exact question immediately. Refer to the opponent's claim in no more than one short clause. Spend at least two-thirds of the response adding analysis, evidence, a distinction, comparison, or useful concession. Do not begin with 'My opponent asks' or repeat the full question.",
-        "Write about 45 to 85 words and explain why the answer changes, or does not change, the overall case."
+        "Write about 30-60 words in one short paragraph. Give one direct answer and explain why it matters, without recapping your opening."
       ];
     case "closing":
       return [
-        "Last Word: write about 45 to 80 words. Name the decision criterion, synthesize the two strongest established points, and answer the opponent's strongest concern without introducing new evidence."
+        "Last Word: write about 30-60 words in one short paragraph. Name the decisive tradeoff and why your side wins it. Do not recap every point or introduce new evidence."
       ];
     default:
       return [];

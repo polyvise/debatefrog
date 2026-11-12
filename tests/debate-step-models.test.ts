@@ -82,7 +82,6 @@ describe("Debatefrog generation guardrails", () => {
       prompt
     );
 
-    expect(issues.join(" ")).toContain("more detail");
     expect(issues.join(" ")).toContain("complete sentence");
     expect(issues.join(" ")).toContain("exactly one question");
     expect(issues.join(" ")).toContain("named debate subject");
@@ -106,6 +105,20 @@ describe("Debatefrog generation guardrails", () => {
     );
 
     expect(issues).toEqual([]);
+  });
+
+  it("keeps brevity a prompt target rather than forcing short complete answers to expand", () => {
+    for (const round of ["opening", "rebuttal", "closing"]) {
+      const prepared = withDebatefrogGenerationRules({
+        role: "pro advocate", schemaName: "debateTurnOutput",
+        prompt: JSON.stringify({ ...basePrompt, round })
+      });
+      expect(prepared.prompt).toContain("30-60 words");
+      expect(prepared.prompt).not.toMatch(/45 to (80|85) words/);
+      expect(semanticOutputIssues("debateTurnOutput", {
+        turns: [{ round, content: "I support longer recess because students need a chance to rest and return to class ready to learn.", sourceIds: [] }]
+      }, prepared.prompt)).toEqual([]);
+    }
   });
 
   it("requires the final recommendation to fit the public summary contract", () => {
