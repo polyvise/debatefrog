@@ -27,6 +27,8 @@ npm run verify
 
 This repository owns Debatefrog-specific UI, routes, feedback, persistence, migrations, evaluations, and deployment. General debate behavior and portable contracts belong in `@polyvise/core`.
 
+Every change starts with the ownership check in [AGENTS.md](AGENTS.md). Stage checkpoints and resumption live in Core; Debatefrog stores checkpoints privately, claims retry attempts atomically, and presents the retry control. The existing app-side provider retry/validation wrapper is a compatibility workaround for Core's nested retry behavior; its reusable machinery should move upstream when Core exposes a configurable retry budget. The age-12 language policy stays here.
+
 The final pre-split monorepo is preserved in `polyvise/polyvise-core` under the `monolith-final-2026-07-23` tag.
 
 ## Debatefrog generation policy
@@ -36,3 +38,5 @@ Visible text targets 12-year-olds: everyday words, short sentences, and roughly 
 Each model step allows at most three HTTP calls across initial generation and one output repair. Each generation allows at most two transport attempts, with a timeout of at most 45 seconds per call and a 1–5-second retry delay. The shared provider retries network errors, timeouts, invalid JSON, empty replies, HTTP 408/409/429, and server errors; authorization and other permanent HTTP errors stop immediately.
 
 Debatefrog uses JSON-object mode with local validation against the shared schemas, avoiding the provider's additional strict-schema fallback retry loop. Repairs include the rejected output and specific validation failures. Optional style repairs get one call without transport retries; if that fails, the original usable answer is kept. Invalid structure or unsupported evidence still fails. Attempt counts, token usage, and cost include repairs. Browser POST requests are not automatically retried because they can create duplicate debates.
+
+Failed runs offer “Try this step again.” Retrying keeps the original question, models, source set, and completed rounds, and asks Core to resume from its saved checkpoint. A retry attempt number and conditional repository update prevent duplicate workers. Streams are scoped to the attempt so a different server instance cannot replay an old failure into the new attempt. Older records created before checkpoint support cannot be resumed.

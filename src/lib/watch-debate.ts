@@ -4,15 +4,16 @@ const POLL_INTERVAL_MS = 10_000;
 const REQUEST_TIMEOUT_MS = 10_000;
 export const DEBATE_IDLE_TIMEOUT_MS = 5 * 60_000;
 export const DEBATE_CONNECTION_MESSAGE =
-  "We lost touch with the frogs before they could finish. Choose New question to try again.";
+  "We lost touch with the frogs before they could finish. You can try this step again.";
 
 /** SSE supplies live turns; the saved record recovers a missed terminal event. */
 export function watchDebate(
   debateId: string,
   onEvent: (event: DebateLiveEvent) => void,
-  onRecord: (debate: DebateRecord) => void
+  onRecord: (debate: DebateRecord) => void,
+  attempt = 0
 ): () => void {
-  const stream = new EventSource(`/api/debates/${debateId}/events`);
+  const stream = new EventSource(`/api/debates/${debateId}/events?attempt=${attempt}`);
   let stopped = false;
   let pending = false;
   let lastProgressAt = Date.now();

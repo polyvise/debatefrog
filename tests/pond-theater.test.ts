@@ -6,6 +6,7 @@ import { PondTheater } from "@/components/pond-theater";
 import { liveReducer, type FroglingsLiveState } from "@/components/froglings-workspace";
 import { froglingsBubbleText, froglingsTheaterCaption } from "@/lib/froglings-text";
 import { roundReadingHoldMs } from "@/lib/froglings-pacing";
+import type { DebateRetryProps } from "@/components/debate-retry";
 
 describe("reading time", () => {
   it.each([
@@ -76,8 +77,8 @@ describe("pond theater playback", () => {
     vi.unstubAllGlobals();
   });
 
-  function render(state: FroglingsLiveState) {
-    act(() => root.render(createElement(PondTheater, { live: state })));
+  function render(state: FroglingsLiveState, retry: DebateRetryProps = {}) {
+    act(() => root.render(createElement(PondTheater, { live: state, ...retry })));
   }
 
   function advance(ms: number) {
@@ -241,6 +242,27 @@ describe("pond theater playback", () => {
     for (let index = 0; index < 4; index++) advance(6000);
     expect(container.querySelector('[role="alert"]')).not.toBeNull();
     expect(container.querySelector(".judge-thought-bubble")).toBeNull();
+  });
+
+  it("offers a retry beside the error, disables it while pending, and resumes without replaying rounds", () => {
+    vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: true })));
+    const rounds = ["opening", "cross_examination", "rebuttal", "closing"] as const;
+    const state = { ...live(rounds.flatMap((round) => [turn("pro", "Yes.", round), turn("con", "No.", round)])), status: "partial" as const, done: true };
+    const onRetry = vi.fn();
+    render(state, { onRetry });
+    for (let index = 0; index < 4; index++) advance(6000);
+    const button = container.querySelector<HTMLButtonElement>('.pt-failed button')!;
+    expect(button.textContent).toContain("Try this step again");
+    act(() => button.click());
+    expect(onRetry).toHaveBeenCalledTimes(1);
+    render(state, { onRetry, retrying: true });
+    expect(container.querySelector<HTMLButtonElement>('.pt-failed button')?.disabled).toBe(true);
+    render(state, { onRetry, retryError: "The connection took too long. Try again." });
+    expect(container.textContent).toContain("The connection took too long");
+    render({ ...state, status: "judging", done: false }, { onRetry });
+    expect(container.querySelector(".pt-failed")).toBeNull();
+    expect(container.querySelector(".judge-thought-bubble")).not.toBeNull();
+    expect(container.querySelector(".pt-plaque")?.textContent).toContain("The judge frog is thinking");
   });
 
   it("holds the closing statements before revealing an already generated verdict", () => {

@@ -10,6 +10,8 @@ import {
   productNotes,
   runHybridCouncilDebate
 } from "@polyvise/core/debate/engine";
+import type { DebateCheckpoint } from "@polyvise/core/debate/engine";
+import type { RecoverableDebateRecord } from "@/lib/debate-recovery";
 import { createDefaultDebateRepository, createDefaultFeedbackRepository } from "./repository";
 import type {
   DebateLiveEvent,
@@ -35,9 +37,29 @@ import { RoundModelLlmProvider } from "@/server/round-model-provider";
 const repository = createDefaultDebateRepository();
 const feedbackRepository = createDefaultFeedbackRepository();
 export const DEBATE_UNAVAILABLE_MESSAGE =
-  "The frogs couldn't start a debate right now. Please try again in a few minutes.";
+  "The frogs couldn't finish this step. You can try it again.";
 export const DEBATE_JUDGE_UNAVAILABLE_MESSAGE =
-  "The judge frog couldn't finish this debate right now. Please try again in a few minutes.";
+  "The judge frog couldn't finish this step. You can try it again.";
+
+type StoredDebateRecord = DebateRecord & {
+  retryState?: {
+    request: DebateRequest;
+    config: DebateRuntimeConfig;
+    stepModels: DebateStepModelSelections;
+    checkpoint?: DebateCheckpoint;
+    events: DebateLiveEvent[];
+    attempt: number;
+  };
+};
+
+function publicDebate(record: StoredDebateRecord): RecoverableDebateRecord {
+  const { retryState, ...debate } = record;
+  return {
+    ...debate,
+    recovery: { attempt: retryState?.attempt ?? 0, available: Boolean(retryState) },
+    ...(!record.latestRun && retryState ? { liveEvents: retryState.events } : {})
+  };
+}
 
 type Listener = (event: DebateLiveEvent) => void;
 
@@ -45,6 +67,7 @@ class DebateEventBus {
   readonly buffer: DebateLiveEvent[] = [];
   private listeners = new Set<Listener>();
   private terminal = false;
+  constructor(readonly attempt = 0) {}
 
   emit(event: DebateLiveEvent): void {
     this.buffer.push(event);
@@ -85,18 +108,10 @@ class DebateEventBus {
 
 const buses = new Map<string, DebateEventBus>();
 
-function getOrCreateBus(id: string): DebateEventBus {
-  let bus = buses.get(id);
-  if (!bus) {
-    bus = new DebateEventBus();
-    buses.set(id, bus);
-  }
-  return bus;
-}
-
 function scheduleBusCleanup(id: string, delayMs = 5 * 60 * 1000): void {
+  const bus = buses.get(id);
   setTimeout(() => {
-    buses.delete(id);
+    if (buses.get(id) === bus) buses.delete(id);
   }, delayMs).unref?.();
 }
 
@@ -194,25 +209,79 @@ export interface StartDebateResult {
 }
 
 export async function startDebate(input: DebatefrogRequest): Promise<StartDebateResult> {
-  const { record, request, config, stepModels, framed } = buildSeedRecord(input);
-  await repository.save(record);
-  const bus = getOrCreateBus(record.id);
+  const { record, request, config, stepModels } = buildSeedRecord(input);
+  const stored: StoredDebateRecord = {
+    ...record, retryState: { request, config, stepModels, events: [], attempt: 0 }
+  };
+  await repository.save(stored);
+  const completion = executeDebate(stored);
+  return { debate: publicDebate(stored), completion };
+}
+
+function nextUpdatedAt(previous: string): string {
+  return new Date(Math.max(Date.now(), Date.parse(previous) + 1)).toISOString();
+}
+
+export async function retryDebate(id: string, attempt: number): Promise<{ debate: RecoverableDebateRecord; accepted: boolean } | null> {
+  const record = await repository.get(id) as StoredDebateRecord | null;
+  if (!record) return null;
+  if (record.status === "complete") return { debate: publicDebate(record), accepted: true };
+  if (!record.retryState) return { debate: publicDebate(record), accepted: false };
+  const inactive = record.status === "failed" || record.status === "partial" || Date.now() - Date.parse(record.updatedAt) >= 5 * 60_000;
+  if (!inactive) return { debate: publicDebate(record), accepted: true };
+  if (record.retryState.attempt !== attempt) return { debate: publicDebate(record), accepted: false };
+  const resumed: StoredDebateRecord = {
+    ...record, status: "queued", updatedAt: nextUpdatedAt(record.updatedAt),
+    retryState: { ...record.retryState, attempt: attempt + 1 }
+  };
+  if (!await repository.saveIfUnchanged(resumed, record.updatedAt)) {
+    const current = await repository.get(id) as StoredDebateRecord | null;
+    return current ? { debate: publicDebate(current), accepted: current.status !== "failed" } : null;
+  }
+  void executeDebate(resumed);
+  return { debate: publicDebate(resumed), accepted: true };
+}
+
+function executeDebate(seed: StoredDebateRecord): Promise<DebateRecord> {
+  let record = seed;
+  const { request, config, stepModels } = record.retryState!;
+  let checkpoint = record.retryState!.checkpoint;
+  let stage: DebateRecord["status"] = record.status;
+  const bus = new DebateEventBus(record.retryState!.attempt);
+  buses.set(record.id, bus);
+  const persist = async (status: DebateRecord["status"], latestRun = record.latestRun) => {
+    const next: StoredDebateRecord = {
+      ...record, status, latestRun, updatedAt: nextUpdatedAt(record.updatedAt),
+      retryState: { ...record.retryState!, checkpoint, events: [...bus.buffer] }
+    };
+    if (!await repository.saveIfUnchanged(next, record.updatedAt)) {
+      throw new Error("This debate attempt was replaced by another request.");
+    }
+    record = next;
+    return publicDebate(record);
+  };
 
   const completion = (async (): Promise<DebateRecord> => {
     try {
-      const run = await runHybridCouncilDebate(record.id, request, framed, {
+      const run = await runHybridCouncilDebate(record.id, request, frameDebateRequest(request), {
         config,
+        checkpoint,
+        onCheckpoint: async (value) => {
+          checkpoint = value;
+          await persist(stage);
+        },
         streamTurns: true,
         provider: new RoundModelLlmProvider(config, stepModels),
-        emit: (event) => bus.emit(event)
+        emit: (event) => {
+          // Publish completion only after the durable result is available.
+          if (event.kind === "complete" || (event.kind === "stage" && event.status === "complete")) return;
+          if (event.kind === "stage") stage = event.status;
+          bus.emit(event);
+        }
       });
-      const completed: DebateRecord = {
-        ...record,
-        status: run.status,
-        latestRun: run,
-        updatedAt: new Date().toISOString()
-      };
-      await repository.save(completed);
+      const completed = await persist(run.status, run);
+      bus.emit({ kind: "stage", status: "complete" });
+      bus.emit({ kind: "complete", runId: run.id });
       scheduleBusCleanup(record.id);
       return completed;
     } catch (error) {
@@ -231,20 +300,12 @@ export async function startDebate(input: DebatefrogRequest): Promise<StartDebate
       if (failedSnapshot) {
         bus.emit({ kind: "model_snapshot", snapshot: failedSnapshot });
       }
-      const hasStartedDebate = bus.buffer.some(
-        (event) => event.kind === "turns" || event.kind === "scorecard" || event.kind === "summary"
-      );
-      bus.emit({
-        kind: "error",
-        message: hasStartedDebate ? DEBATE_JUDGE_UNAVAILABLE_MESSAGE : DEBATE_UNAVAILABLE_MESSAGE
-      });
-      const failed: DebateRecord = {
-        ...record,
-        status: "failed",
-        updatedAt: new Date().toISOString()
-      };
-      await repository.save(failed);
-      scheduleBusCleanup(record.id);
+      try {
+        await persist("failed");
+      } finally {
+        bus.emit({ kind: "error", message: stage === "judging" ? DEBATE_JUDGE_UNAVAILABLE_MESSAGE : DEBATE_UNAVAILABLE_MESSAGE });
+        scheduleBusCleanup(record.id);
+      }
       throw error;
     }
   })();
@@ -252,7 +313,7 @@ export async function startDebate(input: DebatefrogRequest): Promise<StartDebate
   // Prevent unhandled rejection warnings when callers only consume via SSE.
   completion.catch(() => {});
 
-  return { debate: record, completion };
+  return completion;
 }
 
 function modelSnapshotFromError(error: unknown): ModelSnapshot | null {
@@ -269,18 +330,20 @@ export async function createDebate(input: DebatefrogRequest): Promise<DebateReco
 
 export function subscribeToDebate(
   debateId: string,
-  listener: Listener
+  listener: Listener,
+  attempt?: number
 ): { unsubscribe: () => void; terminal: boolean } {
   const bus = buses.get(debateId);
-  if (!bus) {
+  if (!bus || (attempt !== undefined && bus.attempt !== attempt)) {
     return { unsubscribe: () => {}, terminal: true };
   }
   const unsubscribe = bus.subscribe(listener);
   return { unsubscribe, terminal: bus.isTerminal() };
 }
 
-export function getDebate(id: string): Promise<DebateRecord | null> {
-  return repository.get(id);
+export async function getDebate(id: string): Promise<RecoverableDebateRecord | null> {
+  const record = await repository.get(id) as StoredDebateRecord | null;
+  return record ? publicDebate(record) : null;
 }
 
 export function listDebates(): Promise<DebateRecord[]> {

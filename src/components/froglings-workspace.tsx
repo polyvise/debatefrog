@@ -65,6 +65,8 @@ import { FroglingsIntro } from "@/components/froglings-intro";
 import { PondTheater } from "@/components/pond-theater";
 import { roundReadingHoldMs } from "@/lib/froglings-pacing";
 import { watchDebate } from "@/lib/watch-debate";
+import type { RecoverableDebateRecord } from "@/lib/debate-recovery";
+import { DebateRetry, type DebateRetryProps } from "@/components/debate-retry";
 import { buildFroglingsSourceChips, type FroglingsSourceChip } from "@/lib/source-chips";
 import {
   friendlyRound,
@@ -187,12 +189,14 @@ export type FroglingsLiveState = {
   modelSnapshots: ModelSnapshot[];
   trace: RunTraceEntry[];
   done: boolean;
+  recovery?: RecoverableDebateRecord["recovery"];
 };
 
 type LiveAction =
-  | { type: "init"; debateId: string; subject: string }
+  | { type: "init"; debateId: string; subject: string; recovery?: RecoverableDebateRecord["recovery"] }
   | { type: "event"; event: DebateLiveEvent }
-  | { type: "hydrate"; debate: DebateRecord }
+  | { type: "hydrate"; debate: RecoverableDebateRecord }
+  | { type: "resume"; debate: RecoverableDebateRecord }
   | { type: "reset" };
 
 export function liveReducer(state: FroglingsLiveState | null, action: LiveAction): FroglingsLiveState | null {
@@ -212,16 +216,25 @@ export function liveReducer(state: FroglingsLiveState | null, action: LiveAction
       backupReasons: [],
       modelSnapshots: [],
       trace: [],
-      done: false
+      done: false,
+      recovery: action.recovery
     };
+  }
+  if (action.type === "resume") {
+    if (!state || state.debateId !== action.debate.id) return state;
+    if (action.debate.status === "complete") return liveReducer(state, { type: "hydrate", debate: action.debate });
+    return { ...state, recovery: action.debate.recovery, status: action.debate.status, done: false, errorMessage: null };
   }
   if (action.type === "hydrate") {
     if (!state || state.debateId !== action.debate.id) return state;
     const run = action.debate.latestRun;
     if (!run) {
+      for (const event of action.debate.liveEvents ?? []) state = liveReducer(state, { type: "event", event });
+      if (!state) return state;
+      state = { ...state, recovery: action.debate.recovery ?? state.recovery };
       if (action.debate.status === "failed" || action.debate.status === "partial" || action.debate.status === "complete") {
         return liveReducer(state, { type: "event", event: {
-          kind: "error", message: "The frogs couldn't finish this debate. Choose New question to try again."
+          kind: "error", message: "The frogs couldn't finish this step. You can try it again."
         } });
       }
       return state;
@@ -242,7 +255,8 @@ export function liveReducer(state: FroglingsLiveState | null, action: LiveAction
       backupReasons: backupReasonsFromRun(run),
       modelSnapshots: run.modelSnapshots,
       trace: run.trace,
-      done: ["complete", "failed", "partial"].includes(action.debate.status)
+      done: ["complete", "failed", "partial"].includes(action.debate.status),
+      recovery: action.debate.recovery
     };
   }
   if (!state) return state;
@@ -265,7 +279,7 @@ export function liveReducer(state: FroglingsLiveState | null, action: LiveAction
     case "turns":
       return event.placeholder
         ? addBackupReason(state, event.placeholder)
-        : { ...state, turns: [...state.turns, ...event.turns] };
+        : { ...state, turns: [...new Map([...state.turns, ...event.turns].map((turn) => [turn.id, turn])).values()] };
     case "scorecard":
       return event.placeholder
         ? addBackupReason(state, event.placeholder)
@@ -452,6 +466,10 @@ export function FroglingsWorkspace() {
   const [subject, setSubject] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [isRetrying, setIsRetrying] = useState(false);
+  const [retryError, setRetryError] = useState<string | null>(null);
+  const retryPendingRef = useRef(false);
+  const retryRequestRef = useRef<AbortController | null>(null);
   const [live, dispatch] = useReducer(liveReducer, null);
   const [, setDebate] = useState<DebateRecord | null>(null);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
@@ -578,6 +596,8 @@ export function FroglingsWorkspace() {
   useEffect(() => {
     return () => {
       stopWatchingRef.current?.();
+      retryRequestRef.current?.abort();
+      retryRequestRef.current = null;
     };
   }, []);
 
@@ -613,13 +633,13 @@ export function FroglingsWorkspace() {
           councilSize: "duo"
         })
       });
-      const payload = (await response.json()) as { debate?: DebateRecord; error?: string };
+      const payload = (await response.json()) as { debate?: RecoverableDebateRecord; error?: string };
       if (!response.ok || !payload.debate) {
         throw new Error(payload.error ?? DEBATE_UNAVAILABLE_MESSAGE);
       }
 
       const seed = payload.debate;
-      dispatch({ type: "init", debateId: seed.id, subject: seed.subject });
+      dispatch({ type: "init", debateId: seed.id, subject: seed.subject, recovery: seed.recovery });
 
       stopWatchingRef.current = watchDebate(
         seed.id,
@@ -638,7 +658,54 @@ export function FroglingsWorkspace() {
     }
   }
 
+  async function retryFailedStep() {
+    if (!live || !live.recovery?.available || retryPendingRef.current) return;
+    retryPendingRef.current = true;
+    setIsRetrying(true);
+    setRetryError(null);
+    stopWatchingRef.current?.();
+    const controller = new AbortController();
+    retryRequestRef.current = controller;
+    const timeout = window.setTimeout(() => controller.abort(), 20_000);
+    try {
+      const response = await fetch(`/api/debates/${live.debateId}/retry`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ attempt: live.recovery.attempt }), signal: controller.signal
+      });
+      const payload = await response.json() as { debate?: RecoverableDebateRecord; error?: string };
+      if (retryRequestRef.current !== controller) return;
+      if (!response.ok || !payload.debate) {
+        if (payload.debate) dispatch({ type: "hydrate", debate: payload.debate });
+        throw new Error(payload.error ?? "We couldn't reconnect. Please try again.");
+      }
+      dispatch({ type: "resume", debate: payload.debate });
+      if (payload.debate.status !== "complete") {
+        stopWatchingRef.current = watchDebate(live.debateId,
+          (event) => dispatch({ type: "event", event }),
+          (debate) => dispatch({ type: "hydrate", debate }),
+          payload.debate.recovery?.attempt ?? 0
+        );
+      }
+    } catch (error) {
+      if (retryRequestRef.current === controller) setRetryError(
+        error instanceof Error && error.name !== "AbortError" ? error.message : "The connection took too long. Your finished rounds are saved. Try again."
+      );
+    } finally {
+      window.clearTimeout(timeout);
+      if (retryRequestRef.current === controller) {
+        retryRequestRef.current = null;
+        retryPendingRef.current = false;
+        setIsRetrying(false);
+      }
+    }
+  }
+
   function startOver() {
+    retryRequestRef.current?.abort();
+    retryRequestRef.current = null;
+    retryPendingRef.current = false;
+    setIsRetrying(false);
+    setRetryError(null);
     stopWatchingRef.current?.();
     stopWatchingRef.current = null;
     setDebate(null);
@@ -721,9 +788,9 @@ export function FroglingsWorkspace() {
       ) : (
         <FrogSoundsContext.Provider value={soundControls}>
           {viewMode === "theater" ? (
-            <PondTheater live={live} />
+            <PondTheater live={live} onRetry={live.recovery?.available ? retryFailedStep : undefined} retrying={isRetrying} retryError={retryError} />
           ) : (
-            <FroglingsLive live={live} preferences={userPreferences} />
+            <FroglingsLive live={live} preferences={userPreferences} onRetry={live.recovery?.available ? retryFailedStep : undefined} retrying={isRetrying} retryError={retryError} />
           )}
         </FrogSoundsContext.Provider>
       )}
@@ -1415,11 +1482,12 @@ function FroglingsHero({
 
 function FroglingsLive({
   live,
-  preferences
+  preferences,
+  ...retry
 }: {
   live: FroglingsLiveState;
   preferences: UserPreferences;
-}) {
+} & DebateRetryProps) {
   const staged = useStagedFroglingsTurns(live);
   const countdownStarted = isStartCountdownStarted(live);
   const showStartSequence = useStartSequenceVisibility(
@@ -1433,6 +1501,12 @@ function FroglingsLive({
   return (
     <div className="mt-6 space-y-5">
       <QuestionBanner live={live} staged={staged} showStartSequence={showStartSequence} slowWait={slowWait} />
+      {live.status === "failed" || live.status === "partial" ? (
+        <section className="rounded-2xl bg-panel p-5 text-ink" role="alert">
+          <p>{live.errorMessage ?? "The frogs couldn't finish this step."}</p>
+          <DebateRetry {...retry} />
+        </section>
+      ) : null}
       {(live.backupReasons ?? []).length > 0 && !showStartSequence ? <BackupAnswersNotice /> : null}
       {showStartSequence ? (
         <DebateStartSequence live={live} countdownStarted={countdownStarted} />
@@ -1450,7 +1524,7 @@ function FroglingsLive({
               className="text-center text-sm font-semibold text-pond"
             />
           ) : null}
-          <Verdict live={live} readyForVerdict={staged.readyForVerdict} />
+          {live.status !== "failed" && live.status !== "partial" ? <Verdict live={live} readyForVerdict={staged.readyForVerdict} /> : null}
         </>
       ) : null}
     </div>

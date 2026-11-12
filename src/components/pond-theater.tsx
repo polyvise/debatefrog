@@ -27,6 +27,7 @@ import { ExternalLink } from "lucide-react";
 import { SlowPrint } from "@/components/slow-print";
 import { useResearchActivities, researchActivityLabel, type ResearchActivity } from "@/components/use-research-activities";
 import { RoundCountdown } from "@/components/round-countdown";
+import { DebateRetry, type DebateRetryProps } from "@/components/debate-retry";
 import { JudgeThoughtBubble } from "@/components/judge-thought-bubble";
 import { TheaterFrog, type TheaterFrogExpression } from "@/components/theater-frog";
 import { judgeCueOptions, FrogSoundsContext } from "@/components/use-frog-sounds";
@@ -105,11 +106,11 @@ function frogExpression(
   return "idle";
 }
 
-export function PondTheater({ live }: { live: FroglingsLiveState }) {
-  return <PondPerformance key={live.debateId} live={live} />;
+export function PondTheater({ live, ...retry }: { live: FroglingsLiveState } & DebateRetryProps) {
+  return <PondPerformance key={live.debateId} live={live} {...retry} />;
 }
 
-function PondPerformance({ live }: { live: FroglingsLiveState }) {
+function PondPerformance({ live, ...retry }: { live: FroglingsLiveState } & DebateRetryProps) {
   const sounds = useContext(FrogSoundsContext);
   const [roundIndex, setRoundIndex] = useState(0);
   const [proDone, setProDone] = useState(false);
@@ -292,7 +293,8 @@ function PondPerformance({ live }: { live: FroglingsLiveState }) {
 
         {phase === "failed" ? (
           <div className="pt-failed" role="alert">
-            {live.errorMessage ?? "The frogs couldn't finish this debate. Choose New question to try again."}
+            <p>{live.errorMessage ?? "The frogs couldn't finish this step."}</p>
+            <DebateRetry {...retry} />
           </div>
         ) : null}
       </section>

@@ -21,6 +21,14 @@ describe("debate event stream cleanup", () => {
 
   afterEach(() => vi.useRealTimers());
 
+  it("subscribes only to the requested retry attempt", async () => {
+    const abort = new AbortController();
+    const response = await GET(new Request("http://localhost/events?attempt=2", { signal: abort.signal }), { params: { id: "test" } });
+    expect(store.subscribeToDebate).toHaveBeenLastCalledWith("test", expect.any(Function), 2);
+    abort.abort();
+    await response.text();
+  });
+
   it.each([
     { kind: "complete", runId: "run" },
     { kind: "error", message: "The judge couldn't finish." }

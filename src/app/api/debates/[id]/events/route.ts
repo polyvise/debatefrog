@@ -55,7 +55,9 @@ export async function GET(_request: Request, context: RouteContext) {
         }
       };
 
-      const subscription = subscribeToDebate(id, writeEvent);
+      const requestedAttempt = new URL(_request.url).searchParams.get("attempt");
+      const attempt = requestedAttempt === null ? debate.recovery?.attempt : Number(requestedAttempt);
+      const subscription = subscribeToDebate(id, writeEvent, attempt);
       unsubscribe = subscription.unsubscribe;
       if (_request.signal.aborted) closeStream();
 
