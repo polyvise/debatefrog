@@ -32,7 +32,7 @@ describe("judge entrance croak", () => {
     render({ id: "first", ready: false });
     expect(play).not.toHaveBeenCalled();
     render({ id: "first" });
-    expect(play).toHaveBeenCalledExactlyOnceWith("judge", { once: true });
+    expect(play).toHaveBeenCalledExactlyOnceWith("judge", { once: true, volume: 0.4, fadeInMs: 200 });
   });
   it("plays once in Strict Mode and on each new debate, without repeating on rerender", () => {
     render({ id: "first" });

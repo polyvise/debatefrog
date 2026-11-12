@@ -60,7 +60,7 @@ import { RoundCountdown } from "@/components/round-countdown";
 import { JudgeThoughtBubble } from "@/components/judge-thought-bubble";
 import { useResearchActivities, researchActivityLabel } from "@/components/use-research-activities";
 import { useJudgeEntranceCroak } from "@/components/use-judge-entrance-croak";
-import { FrogSoundsContext, useFrogSounds } from "@/components/use-frog-sounds";
+import { judgeCueOptions, FrogSoundsContext, useFrogSounds } from "@/components/use-frog-sounds";
 import { FroglingsIntro } from "@/components/froglings-intro";
 import { PondTheater } from "@/components/pond-theater";
 import { roundReadingHoldMs } from "@/lib/froglings-pacing";
@@ -2308,7 +2308,7 @@ function Verdict({
     hasPlayedJudgeIntroRef.current = true;
 
     scrollActiveFrogIntoView(pendingVerdictRef.current);
-    sounds.play("judge", { random: true });
+    sounds.play("judge", { ...judgeCueOptions, random: true });
     const timer = window.setTimeout(() => sounds.stop("judge"), 520);
 
     return () => {
@@ -2322,7 +2322,7 @@ function Verdict({
     hasPlayedVerdictRef.current = true;
 
     scrollActiveFrogIntoView(verdictRef.current);
-    sounds.play("judge");
+    sounds.play("judge", judgeCueOptions);
     const timer = window.setTimeout(() => sounds.stop("judge"), 420);
 
     return () => {

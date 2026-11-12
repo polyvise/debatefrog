@@ -1,7 +1,7 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { useFrogSounds } from "@/components/use-frog-sounds";
+import { judgeCueOptions, useFrogSounds } from "@/components/use-frog-sounds";
 
 function param() {
   return { value: 0, cancelScheduledValues: vi.fn(), linearRampToValueAtTime: vi.fn(), setValueAtTime: vi.fn() };
@@ -23,7 +23,8 @@ describe("frog audio playback", () => {
     constructor() { context = this; }
     resume = vi.fn(async () => { this.state = "running"; });
     close = vi.fn(async () => { this.state = "closed"; });
-    createGain = node;
+    gains: ReturnType<typeof node>[] = [];
+    createGain = () => { const gain = node(); this.gains.push(gain); return gain; };
     createBufferSource = () => { const source = node(); this.sources.push(source); return source; };
     createOscillator = () => { const source = node(); this.oscillators.push(source); return source; };
     decodeAudioData = vi.fn(async () => ({ duration: 0.86 }));
@@ -47,26 +48,31 @@ describe("frog audio playback", () => {
     expect(api.ready).toBe(false);
     await act(async () => { await unlock; });
     expect(api.ready).toBe(true);
-    act(() => api.play("judge", { once: true }));
+    act(() => api.play("judge", judgeCueOptions));
     const entrance = context.sources[0];
     expect(entrance.loop).toBe(false);
+    const [gain, fadeIn] = context.gains[3].gain.linearRampToValueAtTime.mock.calls.at(-1)!;
+    expect(gain).toBeCloseTo(0.08);
+    expect(fadeIn).toBe(0.2);
     expect(entrance.start).toHaveBeenCalledTimes(1);
     entrance.onended?.();
     expect(entrance.disconnect).toHaveBeenCalledTimes(1);
     act(() => api.play("pro"));
     expect(context.sources[1].loop).toBe(true);
+    expect(context.gains[1].gain.linearRampToValueAtTime).toHaveBeenLastCalledWith(0.18, 0.12);
   });
   it("respects mute for the entrance", async () => {
     await act(async () => { await api.unlock(); });
     act(() => api.toggleMute());
-    act(() => api.play("judge", { once: true }));
+    act(() => api.play("judge", judgeCueOptions));
     expect(context.sources).toHaveLength(0);
   });
   it("stops the fallback croak automatically and cleans up its modulation", async () => {
     vi.mocked(fetch).mockRejectedValue(new Error("offline"));
     await act(async () => { await api.unlock(); });
-    act(() => api.play("judge", { once: true }));
+    act(() => api.play("judge", judgeCueOptions));
     expect(context.oscillators[0].stop).toHaveBeenCalledWith(0.5);
+    expect(context.gains[5].gain.value).toBeCloseTo(0.22);
     context.oscillators[0].onended?.();
     expect(context.oscillators[1].stop).toHaveBeenCalled();
     expect(context.oscillators[2].stop).toHaveBeenCalled();

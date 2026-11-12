@@ -35,7 +35,10 @@ import {
 } from "@/lib/audio-manifest";
 
 type Side = "pro" | "con" | "judge";
-type PlayOptions = { random?: boolean; once?: boolean };
+type PlayOptions = { random?: boolean; once?: boolean; volume?: number; fadeInMs?: number };
+
+/** Automatic judge cues should sit gently alongside the other effects. */
+export const judgeCueOptions = { once: true, volume: 0.4, fadeInMs: 200 } as const;
 
 // -------------------------------------------------------------------------
 // Shared context so any live renderer (classic bubbles or the pond
@@ -290,7 +293,9 @@ export function useFrogSounds(): FrogSoundsApi {
           .map(([, channel]) => channel.currentClipId)
           .filter((clipId): clipId is string => Boolean(clipId))
       );
-      const targetGain = side === "judge" ? 0.2 : 0.18;
+      const volume = options?.volume ?? 1;
+      const targetGain = (side === "judge" ? 0.2 : 0.18) * volume;
+      const fadeInSeconds = (options?.fadeInMs ?? 120) / 1000;
       const pool = poolRef.current;
 
       if (pool.length > 0) {
@@ -322,7 +327,7 @@ export function useFrogSounds(): FrogSoundsApi {
         src.connect(ch.gain);
         ch.gain.gain.cancelScheduledValues(ctx.currentTime);
         ch.gain.gain.setValueAtTime(0, ctx.currentTime);
-        ch.gain.gain.linearRampToValueAtTime(targetGain, ctx.currentTime + 0.12);
+        ch.gain.gain.linearRampToValueAtTime(targetGain, ctx.currentTime + fadeInSeconds);
         src.start();
         ch.source = src;
         ch.currentClipId = choice.id;
@@ -356,14 +361,14 @@ export function useFrogSounds(): FrogSoundsApi {
       tremolo.type = "sine";
       tremolo.frequency.value = side === "pro" ? 6.5 : side === "con" ? 3.2 : 4.8;
       const tremoloGain = ctx.createGain();
-      tremoloGain.gain.value = 0.55;
+      tremoloGain.gain.value = 0.55 * volume;
       tremolo.connect(tremoloGain).connect(ch.gain.gain);
       tremolo.start();
 
       osc.connect(ch.gain);
       ch.gain.gain.cancelScheduledValues(ctx.currentTime);
       ch.gain.gain.setValueAtTime(0, ctx.currentTime);
-      ch.gain.gain.linearRampToValueAtTime(targetGain, ctx.currentTime + 0.12);
+      ch.gain.gain.linearRampToValueAtTime(targetGain, ctx.currentTime + fadeInSeconds);
       osc.start();
       ch.source = osc;
       ch.currentClipId = `synth:${side}`;

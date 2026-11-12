@@ -29,7 +29,7 @@ import { useResearchActivities, researchActivityLabel, type ResearchActivity } f
 import { RoundCountdown } from "@/components/round-countdown";
 import { JudgeThoughtBubble } from "@/components/judge-thought-bubble";
 import { TheaterFrog, type TheaterFrogExpression } from "@/components/theater-frog";
-import { FrogSoundsContext } from "@/components/use-frog-sounds";
+import { judgeCueOptions, FrogSoundsContext } from "@/components/use-frog-sounds";
 import { buildFroglingsSourceChips } from "@/lib/source-chips";
 import { roundReadingHoldMs } from "@/lib/froglings-pacing";
 import {
@@ -198,7 +198,7 @@ function PondPerformance({ live }: { live: FroglingsLiveState }) {
   useEffect(() => {
     if (phase !== "verdict" || verdictCroakRef.current || !sounds.ready) return;
     verdictCroakRef.current = true;
-    sounds.play("judge");
+    sounds.play("judge", judgeCueOptions);
     const timer = window.setTimeout(() => sounds.stop("judge"), 480);
     return () => {
       window.clearTimeout(timer);

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import type { useFrogSounds } from "@/components/use-frog-sounds";
+import { judgeCueOptions, type useFrogSounds } from "@/components/use-frog-sounds";
 
 /** The judge greets the viewer once when a new debate takes the stage. */
 export function useJudgeEntranceCroak(
@@ -19,7 +19,7 @@ export function useJudgeEntranceCroak(
     if (!ready) return;
     const timer = window.setTimeout(() => {
       playedDebate.current = debateId;
-      play("judge", { once: true });
+      play("judge", judgeCueOptions);
     }, 0);
     return () => window.clearTimeout(timer);
   }, [debateId, ready, muted, play]);
