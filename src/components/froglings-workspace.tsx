@@ -64,6 +64,7 @@ import { judgeCueOptions, FrogSoundsContext, useFrogSounds } from "@/components/
 import { FroglingsIntro } from "@/components/froglings-intro";
 import { PondTheater } from "@/components/pond-theater";
 import { roundReadingHoldMs } from "@/lib/froglings-pacing";
+import { watchDebate } from "@/lib/watch-debate";
 import { buildFroglingsSourceChips, type FroglingsSourceChip } from "@/lib/source-chips";
 import {
   friendlyRound,
@@ -194,7 +195,7 @@ type LiveAction =
   | { type: "hydrate"; debate: DebateRecord }
   | { type: "reset" };
 
-function liveReducer(state: FroglingsLiveState | null, action: LiveAction): FroglingsLiveState | null {
+export function liveReducer(state: FroglingsLiveState | null, action: LiveAction): FroglingsLiveState | null {
   if (action.type === "reset") return null;
   if (action.type === "init") {
     return {
@@ -215,8 +216,16 @@ function liveReducer(state: FroglingsLiveState | null, action: LiveAction): Frog
     };
   }
   if (action.type === "hydrate") {
+    if (!state || state.debateId !== action.debate.id) return state;
     const run = action.debate.latestRun;
-    if (!run) return state;
+    if (!run) {
+      if (action.debate.status === "failed" || action.debate.status === "partial" || action.debate.status === "complete") {
+        return liveReducer(state, { type: "event", event: {
+          kind: "error", message: "The frogs couldn't finish this debate. Choose New question to try again."
+        } });
+      }
+      return state;
+    }
     return {
       debateId: action.debate.id,
       subject: action.debate.subject,
@@ -233,7 +242,7 @@ function liveReducer(state: FroglingsLiveState | null, action: LiveAction): Frog
       backupReasons: backupReasonsFromRun(run),
       modelSnapshots: run.modelSnapshots,
       trace: run.trace,
-      done: action.debate.status === "complete" || action.debate.status === "failed"
+      done: ["complete", "failed", "partial"].includes(action.debate.status)
     };
   }
   if (!state) return state;
@@ -453,7 +462,7 @@ export function FroglingsWorkspace() {
   const [userPreferences, setUserPreferences] = useState<UserPreferences>(defaultUserPreferences);
   // Default to the theater; a stored choice (or reduced-motion) wins.
   const [viewMode, setViewMode] = useState<ViewMode>("theater");
-  const eventSourceRef = useRef<EventSource | null>(null);
+  const stopWatchingRef = useRef<(() => void) | null>(null);
   const sounds = useFrogSounds();
   useJudgeEntranceCroak(live?.debateId, sounds);
   const soundControls = useMemo(
@@ -568,7 +577,7 @@ export function FroglingsWorkspace() {
 
   useEffect(() => {
     return () => {
-      eventSourceRef.current?.close();
+      stopWatchingRef.current?.();
     };
   }, []);
 
@@ -578,7 +587,7 @@ export function FroglingsWorkspace() {
     setIsSubmitting(true);
     setSubmitError(null);
     setDebate(null);
-    eventSourceRef.current?.close();
+    stopWatchingRef.current?.();
     // The form submit is the user's first explicit interaction — that's
     // our chance to unlock the AudioContext under browser autoplay rules.
     void sounds.unlock();
@@ -612,59 +621,14 @@ export function FroglingsWorkspace() {
       const seed = payload.debate;
       dispatch({ type: "init", debateId: seed.id, subject: seed.subject });
 
-      const es = new EventSource(`/api/debates/${seed.id}/events`);
-      eventSourceRef.current = es;
-
-      const eventKinds: DebateLiveEvent["kind"][] = [
-        "stage",
-        "framed",
-        "scouts",
-        "teams",
-        "sources",
-        "claims",
-        "argument_map",
-        "turns",
-        "scorecard",
-        "summary",
-        "model_snapshot",
-        "complete",
-        "error"
-      ];
-      for (const kind of eventKinds) {
-        es.addEventListener(kind, (msgEvent) => {
-          try {
-            const parsed = JSON.parse((msgEvent as MessageEvent).data) as DebateLiveEvent;
-            dispatch({ type: "event", event: parsed });
-          } catch {
-            // ignore malformed
-          }
-        });
-      }
-
-      const finalize = async () => {
-        es.close();
-        eventSourceRef.current = null;
-        try {
-          const finalRes = await fetchWithRetry(`/api/debates/${seed.id}`, { cache: "no-store" });
-          const finalPayload = (await finalRes.json()) as { debate?: DebateRecord };
-          if (finalPayload.debate) {
-            setDebate(finalPayload.debate);
-            dispatch({ type: "hydrate", debate: finalPayload.debate });
-          }
-        } catch {
-          // ignore
+      stopWatchingRef.current = watchDebate(
+        seed.id,
+        (event) => dispatch({ type: "event", event }),
+        (debate) => {
+          setDebate(debate);
+          dispatch({ type: "hydrate", debate });
         }
-      };
-      es.addEventListener("complete", () => void finalize());
-      es.addEventListener("error", (streamEvent) => {
-        if (streamEvent instanceof MessageEvent) {
-          void finalize();
-        }
-      });
-      es.addEventListener("closed", () => {
-        es.close();
-        eventSourceRef.current = null;
-      });
+      );
     } catch (caughtError) {
       setSubmitError(
         caughtError instanceof Error ? caughtError.message : DEBATE_UNAVAILABLE_MESSAGE
@@ -675,8 +639,8 @@ export function FroglingsWorkspace() {
   }
 
   function startOver() {
-    eventSourceRef.current?.close();
-    eventSourceRef.current = null;
+    stopWatchingRef.current?.();
+    stopWatchingRef.current = null;
     setDebate(null);
     dispatch({ type: "reset" });
     setSubmitError(null);
@@ -1757,19 +1721,23 @@ function useStagedFroglingsTurns(live: FroglingsLiveState) {
   };
 }
 
-async function fetchWithRetry(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+export async function fetchWithRetry(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   let lastError: unknown;
+  const method = (init?.method ?? (input instanceof Request ? input.method : "GET")).toUpperCase();
+  // Creating a debate or sending feedback has no idempotency key. An unclear
+  // network result must not silently create another run (and another bill).
+  const maxAttempts = method === "GET" || method === "HEAD" ? CLIENT_API_MAX_ATTEMPTS : 1;
 
-  for (let attempt = 1; attempt <= CLIENT_API_MAX_ATTEMPTS; attempt += 1) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
       const response = await fetch(input, init);
-      if (!isRetriableClientResponse(response) || attempt >= CLIENT_API_MAX_ATTEMPTS) {
+      if (!isRetriableClientResponse(response) || attempt >= maxAttempts) {
         return response;
       }
       lastError = new Error(`Request failed with ${response.status}.`);
     } catch (error) {
       lastError = error;
-      if (attempt >= CLIENT_API_MAX_ATTEMPTS) {
+      if (attempt >= maxAttempts) {
         break;
       }
     }

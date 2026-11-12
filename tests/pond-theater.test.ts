@@ -1,9 +1,9 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { RoundTurn } from "@polyvise/core/debate/types";
+import type { DebateRecord, RoundTurn } from "@polyvise/core/debate/types";
 import { PondTheater } from "@/components/pond-theater";
-import type { FroglingsLiveState } from "@/components/froglings-workspace";
+import { liveReducer, type FroglingsLiveState } from "@/components/froglings-workspace";
 import { froglingsBubbleText, froglingsTheaterCaption } from "@/lib/froglings-text";
 import { roundReadingHoldMs } from "@/lib/froglings-pacing";
 
@@ -36,6 +36,15 @@ function live(turns: RoundTurn[], debateId = "test-debate"): FroglingsLiveState 
 }
 
 describe("complete frog statements", () => {
+  it("hydrates a persisted failure without a run while retaining the streamed transcript", () => {
+    const state = live([turn("pro", "Yes.")]);
+    const failed = { id: state.debateId, status: "failed" } as DebateRecord;
+    const result = liveReducer(state, { type: "hydrate", debate: failed });
+    expect(result).toMatchObject({ status: "partial", done: true, turns: state.turns });
+    expect(result?.errorMessage).toContain("couldn't finish");
+    expect(liveReducer(state, { type: "hydrate", debate: { ...failed, id: "old-debate" } })).toBe(state);
+  });
+
   it("preserves long sentences, decimals, and the final sentence in every view", () => {
     const content = "A 49.8 percent result needs careful explanation, " +
       "including how the school measured changes in attention and whether students had enough time to play outside before returning to their classroom. " +
@@ -205,6 +214,33 @@ describe("pond theater playback", () => {
     });
     expect(container.querySelector(".judge-thought-bubble")).toBeNull();
     expect(container.querySelector(".pt-verdict-scene")).not.toBeNull();
+  });
+
+  it.each(["partial", "failed", "complete"] as const)(
+    "leaves the judge's thinking screen when a %s debate has no verdict", (status) => {
+      vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: true })));
+      const rounds = ["opening", "cross_examination", "rebuttal", "closing"] as const;
+      const state = live(rounds.flatMap((round) => [turn("pro", "Yes.", round), turn("con", "No.", round)]));
+      state.status = "judging";
+      render(state);
+      for (let index = 0; index < 4; index++) advance(6000);
+      expect(container.querySelector(".judge-thought-bubble")).not.toBeNull();
+      render({ ...state, status, done: true, errorMessage: "The judge couldn't finish." });
+      expect(container.querySelector(".judge-thought-bubble")).toBeNull();
+      expect(container.querySelector('[role="alert"]')?.textContent).toContain("The judge couldn't finish.");
+      expect(container.textContent).toContain("Read the whole debate");
+    }
+  );
+
+  it("finishes reading buffered turns before showing a judge failure", () => {
+    vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: true })));
+    const rounds = ["opening", "cross_examination", "rebuttal", "closing"] as const;
+    const state = live(rounds.flatMap((round) => [turn("pro", "Yes.", round), turn("con", "No.", round)]));
+    render({ ...state, status: "partial", done: true });
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+    for (let index = 0; index < 4; index++) advance(6000);
+    expect(container.querySelector('[role="alert"]')).not.toBeNull();
+    expect(container.querySelector(".judge-thought-bubble")).toBeNull();
   });
 
   it("holds the closing statements before revealing an already generated verdict", () => {

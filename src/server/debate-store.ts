@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { createDefaultLlmProvider, LlmProviderFailure } from "@polyvise/core/providers/llm";
+import { LlmProviderFailure } from "@polyvise/core/providers/llm";
 import {
   loadDebateRuntimeConfig,
   type DebateRuntimeConfig
@@ -216,15 +216,18 @@ export async function startDebate(input: DebatefrogRequest): Promise<StartDebate
       scheduleBusCleanup(record.id);
       return completed;
     } catch (error) {
+      const failedSnapshot = modelSnapshotFromError(error);
       console.error("[debatefrog.run.failed]", {
         debateId: record.id,
+        role: failedSnapshot?.role,
+        model: failedSnapshot?.model,
+        attempts: failedSnapshot?.attempts?.length,
         name: error instanceof Error ? error.name : "UnknownError",
         message:
           error instanceof Error
             ? error.message.replace(/sk-or-v1-[a-zA-Z0-9_-]+/g, "[redacted-api-key]").slice(0, 1000)
             : "Unknown debate workflow failure."
       });
-      const failedSnapshot = modelSnapshotFromError(error);
       if (failedSnapshot) {
         bus.emit({ kind: "model_snapshot", snapshot: failedSnapshot });
       }
@@ -342,10 +345,12 @@ async function answerFollowup(question: string, debate: DebateRecord): Promise<s
   };
 
   try {
-    const result = await createDefaultLlmProvider().generateStructured<unknown>({
+    const provider = new RoundModelLlmProvider(loadDebateRuntimeConfig(), resolveDebateStepModelDefaults());
+    const result = await provider.generateStructured<unknown>({
       role: "follow-up answer",
       schemaName: "followupOutput",
-      prompt: JSON.stringify(fallback)
+      fallback,
+      prompt: JSON.stringify({ question, ...fallback })
     });
     return followupOutputSchema.parse(result.data).answer;
   } catch {

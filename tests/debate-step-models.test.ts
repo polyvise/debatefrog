@@ -1,9 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { loadDebateRuntimeConfig } from "@polyvise/core/debate/config";
+import { OpenRouterLlmProvider } from "@polyvise/core/providers/llm";
 import {
   resolveDebateStepModelDefaults,
   resolveDebateStepModels
 } from "@/lib/debate-step-models";
 import {
+  RoundModelLlmProvider,
   semanticOutputIssues,
   stepForRole,
   withDebatefrogGenerationRules
@@ -38,6 +41,75 @@ describe("mirrored per-step model routing", () => {
   });
 });
 
+describe("Debatefrog brevity repair", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  const request = {
+    role: "pro advocate opening round",
+    schemaName: "debateTurnOutput",
+    prompt: JSON.stringify({ round: "opening", sources: [] })
+  };
+  const response = (content: string, sourceIds: string[] = []) => ({
+    data: { turns: [{ round: "opening", content, sourceIds, agentId: "pro", agentName: "Yes Frog", side: "pro", claimIds: [] }] },
+    snapshot: { id: "test", provider: "openrouter" as const, model: "test", role: request.role, configured: true }
+  });
+  const longAnswer = "More time outside helps us rest. ".repeat(8).trim();
+  const provider = () => new RoundModelLlmProvider(
+    { ...loadDebateRuntimeConfig(), enableMockLlm: false },
+    resolveDebateStepModelDefaults({})
+  );
+
+  it("rewrites an overlong turn once and returns the shorter answer intact", async () => {
+    const shortAnswer = "I support longer recess. Playing outside gives us a break so we can focus in class.";
+    const generate = vi.spyOn(OpenRouterLlmProvider.prototype, "generateStructured")
+      .mockResolvedValueOnce(response(longAnswer))
+      .mockResolvedValueOnce(response(shortAnswer));
+
+    const result = await provider().generateStructured(request);
+
+    expect(generate).toHaveBeenCalledTimes(2);
+    const repair = JSON.parse(generate.mock.calls[1][0].prompt);
+    expect(repair.outputToRepair).toEqual(response(longAnswer).data);
+    expect(repair.semanticRepairRequired).toEqual([expect.stringContaining("45 words or fewer")]);
+    expect(result.data).toEqual(response(shortAnswer).data);
+  });
+
+  it("does not discard or truncate a complete debate if the rewrite is still wordy", async () => {
+    const generate = vi.spyOn(OpenRouterLlmProvider.prototype, "generateStructured")
+      .mockResolvedValue(response(longAnswer));
+    const result = await provider().generateStructured(request);
+    expect(generate).toHaveBeenCalledTimes(2);
+    expect(result.data).toEqual(response(longAnswer).data);
+  });
+
+  it("still rejects unsupported citations after the rewrite", async () => {
+    vi.spyOn(OpenRouterLlmProvider.prototype, "generateStructured")
+      .mockResolvedValue(response(longAnswer, ["made-up-source"]));
+    await expect(provider().generateStructured(request)).rejects.toThrow("unknown source id");
+  });
+
+  it("gives the judge its rejected summary to shorten before completing", async () => {
+    const summary = {
+      headline: "Less homework wins",
+      recommendation: "The green frog made a strong point about giving children more time to rest. ".repeat(5),
+      strongestPro: ["Children need time to rest."], strongestCon: ["Practice helps children learn."],
+      unresolvedUncertainties: [], whatWouldChangeMind: [], confidence: 0.7
+    };
+    const repaired = { ...summary, recommendation: "The green frog wins because rest matters. Practice helps too, but children need time to play after school." };
+    const generate = vi.spyOn(OpenRouterLlmProvider.prototype, "generateStructured")
+      .mockResolvedValueOnce({ ...response(""), data: summary })
+      .mockResolvedValueOnce({ ...response(""), data: repaired });
+    const result = await provider().generateStructured({
+      ...request, role: "final summary", schemaName: "finalSummaryOutput"
+    });
+    expect(result.data).toEqual(repaired);
+    const prompt = JSON.parse(generate.mock.calls[1][0].prompt);
+    expect(prompt.outputToRepair).toEqual(summary);
+    expect(prompt.semanticRepairRequired.join(" ")).toContain("recommendation");
+    expect(prompt.semanticRepairRequired.join(" ")).toContain("320");
+  });
+});
+
 describe("Debatefrog generation guardrails", () => {
   const basePrompt = {
     rules: [
@@ -59,7 +131,7 @@ describe("Debatefrog generation guardrails", () => {
     expect(parsed.rules.some((rule) => rule.startsWith("Start by naming"))).toBe(false);
     expect(parsed.rules.some((rule) => rule.includes("answer the opponent's exact question immediately"))).toBe(true);
     expect(parsed.rules.some((rule) => rule.includes("never the subject itself"))).toBe(true);
-    expect(parsed.rules.some((rule) => rule.includes("grades 5 through 8"))).toBe(true);
+    expect(parsed.rules.some((rule) => rule.includes("12-year-old"))).toBe(true);
     expect(parsed.rules.some((rule) => rule.includes("speak as the frog"))).toBe(true);
   });
 
@@ -96,7 +168,7 @@ describe("Debatefrog generation guardrails", () => {
           {
             round: "cross_examination",
             content:
-              "Vote share and job approval measure different things, so what comparable polling series shows that the change you describe is still happening now?",
+              "Winning votes and doing a good job are different, so which polls show more people approve of the job now?",
             sourceIds: ["source-1"]
           }
         ]
@@ -113,12 +185,66 @@ describe("Debatefrog generation guardrails", () => {
         role: "pro advocate", schemaName: "debateTurnOutput",
         prompt: JSON.stringify({ ...basePrompt, round })
       });
-      expect(prepared.prompt).toContain("30-60 words");
+      expect(prepared.prompt).toContain("25-45 words");
       expect(prepared.prompt).not.toMatch(/45 to (80|85) words/);
       expect(semanticOutputIssues("debateTurnOutput", {
         turns: [{ round, content: "I support longer recess because students need a chance to rest and return to class ready to learn.", sourceIds: [] }]
       }, prepared.prompt)).toEqual([]);
     }
+  });
+
+  it("replaces inherited length rules without dropping evidence or question requirements", () => {
+    const prepared = withDebatefrogGenerationRules({
+      role: "pro advocate cross-examination round",
+      schemaName: "debateTurnOutput",
+      prompt: JSON.stringify({
+        round: "cross_examination",
+        rules: [
+          "Aim for about 30-60 words in each turn's content.",
+          "Cross-examination round job: ask exactly one short, pointed question, usually 15-35 words.",
+          "Only cite relevant sources."
+        ]
+      })
+    });
+    expect(prepared.prompt).not.toMatch(/30-60|15-35/);
+    expect(prepared.prompt).toContain("10-20 words");
+    expect(prepared.prompt).toContain("End with a question mark");
+    expect(prepared.prompt).toContain("Only cite relevant sources");
+  });
+
+  it.each(["claimOutput", "judgeScorecardOutput", "finalSummaryOutput", "followupOutput"])(
+    "applies the same audience to %s", (schemaName) => {
+      const prepared = withDebatefrogGenerationRules({
+        role: "judge", schemaName, prompt: JSON.stringify({ rules: [] })
+      });
+      expect(prepared.prompt).toContain("12-year-old");
+      expect(prepared.prompt).toContain("everyday words");
+      expect(prepared.prompt).toContain("never invent evidence");
+    }
+  );
+
+  it.each([
+    ["opening", 45], ["rebuttal", 45], ["closing", 45], ["cross_examination", 25]
+  ])("requests a rewrite above the %s word limit without imposing a minimum", (round, limit) => {
+    const content = `${Array(Number(limit)).fill("word").join(" ")}${round === "cross_examination" ? "?" : "."}`;
+    const prompt = JSON.stringify({ round });
+    const output = (text: string) => ({ turns: [{ round, content: text, sourceIds: [] }] });
+    expect(semanticOutputIssues("debateTurnOutput", output(content), prompt)).toEqual([]);
+    expect(semanticOutputIssues("debateTurnOutput", output(`Another ${content}`), prompt))
+      .toEqual([expect.stringContaining("Brevity:")]);
+  });
+
+  it("checks summary detail as well as the main verdict for wordiness", () => {
+    const issues = semanticOutputIssues("finalSummaryOutput", {
+      headline: "Longer recess wins",
+      recommendation: `${"We can rest. ".repeat(12)}`,
+      strongestPro: [`${"More time to play helps us rest. ".repeat(3)}`],
+      strongestCon: ["Less class time could mean less time to learn."]
+    }, "{}");
+    expect(issues).toEqual([
+      expect.stringContaining("Brevity: Recommendation"),
+      expect.stringContaining("Brevity: strongestPro item")
+    ]);
   });
 
   it("requires the final recommendation to fit the public summary contract", () => {

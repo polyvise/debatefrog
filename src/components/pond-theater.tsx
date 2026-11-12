@@ -160,11 +160,12 @@ function PondPerformance({ live }: { live: FroglingsLiveState }) {
   // The debate ended without ever producing a turn this round is
   // waiting on — don't sit forever showing a "thinking" bubble that
   // will never resolve.
-  const roundStuck = live.done && currentRound !== null && (!proTurn || (proDone && !conTurn));
+  const ended = live.done || debateBroke || live.status === "complete";
+  const roundStuck = ended && currentRound !== null && (!proTurn || (proDone && !conTurn));
   const waitingForOpening = roundIndex === 0 && !proTurn && !live.done;
 
   const phase: TheaterPhase =
-    debateBroke && (live.turns.length === 0 || roundStuck)
+    (debateBroke && live.turns.length === 0) || roundStuck || (ended && allRoundsHeld && !hasVerdict)
       ? "failed"
       : allRoundsHeld && hasVerdict
         ? "verdict"
@@ -291,7 +292,7 @@ function PondPerformance({ live }: { live: FroglingsLiveState }) {
 
         {phase === "failed" ? (
           <div className="pt-failed" role="alert">
-            {live.errorMessage ?? "Uh oh — the frogs slipped off the lily pad. Please try again."}
+            {live.errorMessage ?? "The frogs couldn't finish this debate. Choose New question to try again."}
           </div>
         ) : null}
       </section>
