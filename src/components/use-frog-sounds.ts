@@ -81,7 +81,7 @@ const MIME_FOR_FORMAT: Record<AudioFormat, string> = {
  * Picks the best playable URL for a clip, or null if none of its
  * formats exist or the browser can't decode any of them.
  */
-function pickSourceUrl(clip: AudioClip): string | null {
+export function pickSourceUrl(clip: AudioClip): string | null {
   if (typeof window === "undefined") return null;
   const probe = document.createElement("audio");
   for (const fmt of FORMAT_PRIORITY) {
@@ -117,6 +117,8 @@ interface IntroLoop {
 }
 
 interface FrogSoundsApi {
+  /** True after the saved mute preference has been read. */
+  preferencesReady: boolean;
   /** True once the AudioContext has been resumed by a user gesture. */
   ready: boolean;
   /** True when the user has muted; persisted to localStorage. */
@@ -152,6 +154,7 @@ export function useFrogSounds(): FrogSoundsApi {
   const poolRef = useRef<LoadedClip[]>([]);
   const [ready, setReady] = useState(false);
   const [muted, setMuted] = useState<boolean>(false);
+  const [preferencesReady, setPreferencesReady] = useState(false);
 
   // Hydrate persisted mute setting once on mount.
   useEffect(() => {
@@ -162,6 +165,7 @@ export function useFrogSounds(): FrogSoundsApi {
     } catch {
       // localStorage may be disabled (private mode, etc.); fail open.
     }
+    setPreferencesReady(true);
   }, []);
 
   // When mute toggles, immediately reflect that on the master gain
@@ -556,5 +560,5 @@ export function useFrogSounds(): FrogSoundsApi {
     };
   }, []);
 
-  return { ready, muted, toggleMute, unlock, play, stop, beep, blip, startIntro, stopIntro };
+  return { ready, muted, preferencesReady, toggleMute, unlock, play, stop, beep, blip, startIntro, stopIntro };
 }

@@ -58,6 +58,7 @@ import { FunFrog } from "@/components/fun-frog";
 import { SlowPrint } from "@/components/slow-print";
 import { RoundCountdown } from "@/components/round-countdown";
 import { JudgeThoughtBubble } from "@/components/judge-thought-bubble";
+import { WelcomeCroak } from "@/components/welcome-croak";
 import { FrogSoundsContext, useFrogSounds } from "@/components/use-frog-sounds";
 import { FroglingsIntro } from "@/components/froglings-intro";
 import { PondTheater } from "@/components/pond-theater";
@@ -681,6 +682,7 @@ export function FroglingsWorkspace() {
 
   return (
     <main className="mx-auto w-full max-w-[960px] px-4 py-6 sm:py-10">
+      <WelcomeCroak enabled={!live && !isSubmitting} muted={sounds.muted} preferencesReady={sounds.preferencesReady} />
       <header className="flex flex-wrap items-center justify-between gap-3">
         <Link
           href={"/" as Route}
@@ -723,6 +725,7 @@ export function FroglingsWorkspace() {
           <button
             type="button"
             onClick={sounds.toggleMute}
+            data-audio-toggle
             aria-pressed={sounds.muted}
             aria-label={sounds.muted ? "Unmute frog sounds" : "Mute frog sounds"}
             title={sounds.muted ? "Unmute frog sounds" : "Mute frog sounds"}
