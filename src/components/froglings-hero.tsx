@@ -1,5 +1,6 @@
 "use client";
 
+import { isReadingLevel, type ReadingLevel } from "@/lib/reading-level";
 import { useState, type FormEvent } from "react";
 import { ArrowRight, Loader2 } from "lucide-react";
 import { TheaterFrog } from "@/components/theater-frog";
@@ -12,7 +13,9 @@ const kidPrompts = [
   "Should pets be allowed at school?",
   "Should homework be banned?"
 ];
-export function FroglingsHero({ subject, onSubjectChange, isSubmitting, error, onSubmit }: {
+export function FroglingsHero({ subject, onSubjectChange, isSubmitting, error, onSubmit, readingLevel, onReadingLevelChange }: {
+  readingLevel: ReadingLevel;
+  onReadingLevelChange: (value: ReadingLevel) => void;
   subject: string;
   onSubjectChange: (value: string) => void;
   isSubmitting: boolean;
@@ -32,6 +35,14 @@ export function FroglingsHero({ subject, onSubjectChange, isSubmitting, error, o
         <textarea id="subject" value={subject} onChange={event => onSubjectChange(event.target.value)}
           onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
           placeholder={focused ? "" : kidPrompts[0]} aria-describedby={error ? "welcome-error" : undefined} />
+        <div className="welcome-reading-level">
+          <label htmlFor="reading-level">Reading level</label>
+          <select id="reading-level" value={readingLevel} disabled={isSubmitting}
+            onChange={event => { if (isReadingLevel(event.target.value)) onReadingLevelChange(event.target.value); }}>
+            <option value="9-11">Ages 9–11</option>
+            <option value="12-14">Ages 12–14</option>
+          </select>
+        </div>
         {error ? <p id="welcome-error" className="welcome-error" role="alert">{error}</p> : null}
         <button className="welcome-start" type="submit" disabled={isSubmitting || subject.trim().length < 4}>
           {isSubmitting ? <>Getting the frogs ready <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /></> : <>Start the debate <ArrowRight className="h-4 w-4" aria-hidden="true" /></>}

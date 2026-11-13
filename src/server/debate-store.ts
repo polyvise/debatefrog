@@ -1,3 +1,4 @@
+import { DEFAULT_READING_LEVEL } from "@/lib/reading-level";
 import { randomUUID } from "node:crypto";
 import { LlmProviderFailure } from "@polyvise/core/providers/llm";
 import {
@@ -41,7 +42,7 @@ export const DEBATE_UNAVAILABLE_MESSAGE =
 export const DEBATE_JUDGE_UNAVAILABLE_MESSAGE =
   "The judge frog couldn't finish this step. You can try it again.";
 
-type StoredDebateRecord = DebateRecord & {
+type StoredDebateRecord = RecoverableDebateRecord & {
   retryState?: {
     request: DebateRequest;
     config: DebateRuntimeConfig;
@@ -116,7 +117,7 @@ function scheduleBusCleanup(id: string, delayMs = 5 * 60 * 1000): void {
 }
 
 function buildSeedRecord(input: DebatefrogRequest): {
-  record: DebateRecord;
+  record: StoredDebateRecord;
   request: DebateRequest;
   config: DebateRuntimeConfig;
   stepModels: DebateStepModelSelections;
@@ -127,7 +128,8 @@ function buildSeedRecord(input: DebatefrogRequest): {
   const id = `debate_${randomUUID().slice(0, 10)}`;
   const framed = frameDebateRequest(request);
   const createdAt = new Date().toISOString();
-  const record: DebateRecord = {
+  const record: StoredDebateRecord = {
+    readingLevel: parsed.readingLevel ?? DEFAULT_READING_LEVEL,
     id,
     subject: framed.subject,
     context: framed.context,
@@ -271,7 +273,7 @@ function executeDebate(seed: StoredDebateRecord): Promise<DebateRecord> {
           await persist(stage);
         },
         streamTurns: true,
-        provider: new RoundModelLlmProvider(config, stepModels),
+        provider: new RoundModelLlmProvider(config, stepModels, record.readingLevel),
         emit: (event) => {
           // Publish completion only after the durable result is available.
           if (event.kind === "complete" || (event.kind === "stage" && event.status === "complete")) return;
@@ -379,7 +381,7 @@ export function listFeedback(): Promise<UserFeedback[]> {
 }
 
 export async function addFollowup(debateId: string, question: string): Promise<FollowupExchange | null> {
-  const debate = await getDebate(debateId);
+  const debate = await repository.get(debateId) as StoredDebateRecord | null;
   if (!debate?.latestRun) {
     return null;
   }
@@ -402,18 +404,18 @@ export async function addFollowup(debateId: string, question: string): Promise<F
   return exchange;
 }
 
-async function answerFollowup(question: string, debate: DebateRecord): Promise<string> {
+async function answerFollowup(question: string, debate: StoredDebateRecord): Promise<string> {
   const fallback = {
     answer: answerFollowupDeterministic(question, debate)
   };
 
   try {
-    const provider = new RoundModelLlmProvider(loadDebateRuntimeConfig(), resolveDebateStepModelDefaults());
+    const provider = new RoundModelLlmProvider(loadDebateRuntimeConfig(), resolveDebateStepModelDefaults(), debate.readingLevel);
     const result = await provider.generateStructured<unknown>({
       role: "follow-up answer",
       schemaName: "followupOutput",
       fallback,
-      prompt: JSON.stringify({ question, ...fallback })
+      prompt: JSON.stringify({ question, subject: debate.subject, summary: debate.latestRun?.summary, sources: debate.latestRun?.sources, turns: debate.latestRun?.turns, ...fallback })
     });
     return followupOutputSchema.parse(result.data).answer;
   } catch {
@@ -426,21 +428,21 @@ function answerFollowupDeterministic(question: string, debate: DebateRecord): st
   const summary = debate.latestRun?.summary;
 
   if (!summary) {
-    return "The debate has not completed yet, so this question cannot be answered from the run record.";
+    return "The debate is not finished yet. Ask again after the judge gives a verdict.";
   }
 
   if (lowered.includes("change") || lowered.includes("mind")) {
-    return `The clearest mind-changers are: ${summary.whatWouldChangeMind.join(" ")}`;
+    return `Here is what could change the answer: ${summary.whatWouldChangeMind.join(" ")}`;
   }
 
   if (lowered.includes("risk") || lowered.includes("downside")) {
-    return `The main downside is: ${summary.strongestCon[0]} The practical response is to make the first step reversible and name stop conditions before acting.`;
+    return `The other frog’s main concern was: ${summary.strongestCon[0] ?? "The debate did not give a clear concern."}`;
   }
 
   if (lowered.includes("source") || lowered.includes("evidence")) {
     const sources = debate.latestRun?.sources.slice(0, 3).map((source) => `${source.publisher}: ${source.title}`);
-    return `The run leaned on these sources first: ${sources?.join("; ")}. Live search can replace development references when BRAVE_SEARCH_API_KEY or TAVILY_API_KEY is configured.`;
+    return `These sources helped the frogs: ${sources?.join("; ")}.`;
   }
 
-  return `Based on the completed debate, the answer is conditional: ${summary.recommendation}`;
+  return `Here is what the judge said: ${summary.recommendation}`;
 }

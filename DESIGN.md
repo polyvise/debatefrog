@@ -145,3 +145,5 @@ The welcome scene and parchment panel have softly rounded corners. Controls use 
 - Don't replace the established pond identity or font stack for this refinement.
 - Don't add generated raster assets when the existing SVG scenery and characters serve the surface.
 - Don't let decorative content push question entry below a long introduction.
+
+The question form includes a native Reading level selector: ages 9–11 by default, or ages 12–14. Keep it compact, labeled, keyboard-accessible, and disabled while starting a debate.

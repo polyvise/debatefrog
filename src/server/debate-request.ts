@@ -1,3 +1,4 @@
+import { readingLevels, type ReadingLevel } from "@/lib/reading-level";
 import { debateRequestSchema } from "@polyvise/core/debate/schema";
 import type { DebateRequest } from "@polyvise/core/debate/types";
 import { z } from "zod";
@@ -24,10 +25,12 @@ const debatefrogModelSelectionSchema = z
 
 export const debatefrogRequestSchema = debateRequestSchema.extend({
   mode: z.literal("hybrid_council").optional(),
+  readingLevel: z.enum(readingLevels).optional(),
   models: debatefrogModelSelectionSchema
 });
 
 export type DebatefrogRequest = Omit<DebateRequest, "models"> & {
+  readingLevel?: ReadingLevel;
   models?: PartialDebateStepModelSelections & {
     yes?: string;
     no?: string;

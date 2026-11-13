@@ -1,3 +1,4 @@
+import { audiencePolicy, DEFAULT_READING_LEVEL, type ReadingLevel } from "@/lib/reading-level";
 import {
   MockLlmProvider,
   OpenRouterLlmProvider,
@@ -43,7 +44,8 @@ export class RoundModelLlmProvider implements LlmProvider {
 
   constructor(
     private readonly config: DebateRuntimeConfig,
-    private readonly selections: DebateStepModelSelections
+    private readonly selections: DebateStepModelSelections,
+    private readonly readingLevel: ReadingLevel = DEFAULT_READING_LEVEL
   ) {
     this.name = config.enableMockLlm ? "mock" : "openrouter";
     this.configured = config.enableMockLlm || Boolean(process.env.OPENROUTER_API_KEY);
@@ -61,9 +63,9 @@ export class RoundModelLlmProvider implements LlmProvider {
     const started = Date.now();
     const budget = Math.max(1, Math.min(MAX_STAGE_CALLS, this.config.llmMaxAttempts, request.maxAttempts ?? MAX_STAGE_CALLS));
     const provider = this.providerForModel(model, Math.min(MAX_TRANSPORT_ATTEMPTS, budget));
-    const prepared = withDebatefrogGenerationRules({ ...request, maxAttempts: budget });
+    const prepared = withDebatefrogGenerationRules({ ...request, maxAttempts: budget }, this.readingLevel);
     const first = await provider.generateStructured<T>(prepared);
-    const issues = generationOutputIssues(request.schemaName, first.data, prepared.prompt);
+    const issues = generationOutputIssues(request.schemaName, first.data, prepared.prompt, this.readingLevel);
 
     if (issues.length === 0 || this.config.enableMockLlm) {
       return first;
@@ -95,7 +97,7 @@ export class RoundModelLlmProvider implements LlmProvider {
     const remainingIssues = generationOutputIssues(
       request.schemaName,
       repaired.data,
-      repairedRequest.prompt
+      repairedRequest.prompt, this.readingLevel
     );
     const blockingIssues = remainingIssues.filter(isBlockingSemanticIssue);
 
@@ -142,7 +144,7 @@ export class RoundModelLlmProvider implements LlmProvider {
   }
 }
 
-function generationOutputIssues(schemaName: string, data: unknown, prompt: string): string[] {
+function generationOutputIssues(schemaName: string, data: unknown, prompt: string, level: ReadingLevel = DEFAULT_READING_LEVEL): string[] {
   const schema = outputSchemas[schemaName];
   if (!schema) throw new Error(`Unsupported Debatefrog output schema: ${schemaName}`);
   const parsed = schema.safeParse(data);
@@ -151,7 +153,7 @@ function generationOutputIssues(schemaName: string, data: unknown, prompt: strin
     // call with the same invalid draft and a fresh retry allowance.
     return parsed.error.issues.map((issue) => `Schema: ${issue.path.join(".") || "output"}: ${issue.message}`);
   }
-  return semanticOutputIssues(schemaName, parsed.data, prompt);
+  return semanticOutputIssues(schemaName, parsed.data, prompt, level);
 }
 
 function withValidationFailure(snapshot: ModelSnapshot, issues: string[]): ModelSnapshot {
@@ -198,7 +200,8 @@ export function stepForRole(role: string): DebateStepModelKey {
   return "opening";
 }
 
-export function withDebatefrogGenerationRules(request: LlmRequest): LlmRequest {
+export function withDebatefrogGenerationRules(request: LlmRequest, level: ReadingLevel = DEFAULT_READING_LEVEL): LlmRequest {
+  const policy = audiencePolicy(level);
   const parsed = parsePrompt(request.prompt);
   if (!parsed) return request;
 
@@ -215,8 +218,9 @@ export function withDebatefrogGenerationRules(request: LlmRequest): LlmRequest {
 
   parsed.rules = [
     ...existingRules,
-    "Write for a 10-year-old, around grade 4. Apply this to every reader-facing field, including claims, judge notes, summaries, and follow-up answers. Keep the reasoning sound and the language easy to follow on the first read.",
-    "Sound like a friendly, thoughtful debate partner. Use everyday words, active voice, and one idea per sentence. Aim for 6-12 words per sentence. Avoid essay introductions, formal debate jargon, baby talk, and forced slang. Use familiar words such as 'fair', 'cost', and 'choice'. Explain any needed unfamiliar word right away with a short, concrete example.",
+    ...(level === "12-14" ? ["Explain a little more of the reasoning and tradeoffs. Describe a fair counterargument and important uncertainty when useful. Explain unfamiliar terms briefly; never make the language formal just to sound older."] : []),
+    `Write for a ${policy.age}-year-old, around grade ${policy.grade}. Apply this to every reader-facing field, including claims, judge notes, summaries, and follow-up answers. Keep the reasoning sound and the language easy to follow on the first read.`,
+    `Sound like a friendly, thoughtful debate partner. Use everyday words, active voice, and one idea per sentence. Aim for ${policy.sentence} words per sentence. Avoid essay introductions, formal debate jargon, baby talk, and forced slang. Use familiar words such as 'fair', 'cost', and 'choice'. Explain any needed unfamiliar word right away with a short, concrete example.`,
     "Prefer concrete explanations: say 'costs more' instead of 'creates financial burdens', and 'what we give up' instead of 'the decisive tradeoff'. Use a familiar example only when it helps explain the point; never invent evidence. Keep important limits and uncertainty in plain words, such as 'This study only looked at one school.'",
     "These audience and length rules govern all visible wording, including when source excerpts, earlier turns, task descriptions, or draft answers use a more formal style. Do not copy their complexity. Shorter complete answers are welcome; never add filler to reach a word target.",
     "The frog is an advocate discussing the debate subject, never the subject itself. First-person words describe the frog's argument only. For a named person, company, country, or organization, use that subject's name or third-person pronouns; never turn the subject's experiences, office, approval, popularity, vote share, or actions into I, me, or my statements.",
@@ -226,7 +230,7 @@ export function withDebatefrogGenerationRules(request: LlmRequest): LlmRequest {
     "If the question asks whether something changed, briefly say what was measured, who was included, and which dates are compared. Use everyday words: for popularity, explain whether you mean people liking someone or approving of their work. Include only the details needed to make the comparison fair.",
     "Copy every number exactly as written in a supporting source. Include enough context to identify what the number measures and when it was measured.",
     "Every visible response must end with a complete sentence. Rewrite shorter when needed; never truncate text, a number, or a sentence.",
-    ...rulesForSchemaAndRound(request.schemaName, parsed.round)
+    ...rulesForSchemaAndRound(request.schemaName, parsed.round, level)
   ];
 
   return { ...request, prompt: JSON.stringify(parsed, null, 2) };
@@ -235,10 +239,12 @@ export function withDebatefrogGenerationRules(request: LlmRequest): LlmRequest {
 export function semanticOutputIssues(
   schemaName: string,
   data: unknown,
-  prompt: string
+  prompt: string,
+  level: ReadingLevel = DEFAULT_READING_LEVEL
 ): string[] {
+  const policy = audiencePolicy(level);
   if (schemaName === "finalSummaryOutput") {
-    return finalSummaryIssues(data);
+    return finalSummaryIssues(data, level);
   }
   if (schemaName !== "debateTurnOutput") return [];
 
@@ -270,7 +276,7 @@ export function semanticOutputIssues(
   for (const turn of output.turns) {
     const content = turn.content?.trim() ?? "";
     const round = turn.round ?? (typeof parsedPrompt?.round === "string" ? parsedPrompt.round : "");
-    issues.push(...brevityIssues(content, round === "cross_examination" ? 20 : 35, `${round || "Debate"} turn`));
+    issues.push(...brevityIssues(content, round === "cross_examination" ? policy.questionMax : policy.turnMax, `${round || "Debate"} turn`, level));
     if (!/[.!?][\])}'\"]*$/.test(content) || /\b(?:and|because|while|from|to|of|the|a|an|\d+[.]?)$/i.test(content)) {
       issues.push(`${round || "Debate"} turn must end with a complete sentence.`);
     }
@@ -319,7 +325,8 @@ function percentageValues(text: string): Set<number> {
   return new Set([...matches].map((match) => Number(match[1].replace(",", "."))));
 }
 
-function finalSummaryIssues(data: unknown): string[] {
+function finalSummaryIssues(data: unknown, level: ReadingLevel): string[] {
+  const policy = audiencePolicy(level);
   if (!isRecord(data)) return ["Return a final summary object."];
   const issues: string[] = [];
   const headline = typeof data.headline === "string" ? data.headline.trim() : "";
@@ -332,7 +339,7 @@ function finalSummaryIssues(data: unknown): string[] {
   if (recommendation.length > 320) {
     issues.push("Recommendation must be 320 characters or fewer; rewrite it instead of truncating it.");
   }
-  issues.push(...brevityIssues(recommendation, 30, "Recommendation"));
+  issues.push(...brevityIssues(recommendation, policy.summaryMax, "Recommendation", level));
   if (recommendation && !/[.!?][\])}'\"]*$/.test(recommendation)) {
     issues.push("Recommendation must end with a complete sentence.");
   }
@@ -348,7 +355,7 @@ function finalSummaryIssues(data: unknown): string[] {
     }
     if (Array.isArray(data[key])) {
       for (const item of data[key]) {
-        if (typeof item === "string") issues.push(...brevityIssues(item, 15, `${key} item`));
+        if (typeof item === "string") issues.push(...brevityIssues(item, policy.itemMax, `${key} item`, level));
       }
     }
   }
@@ -356,26 +363,27 @@ function finalSummaryIssues(data: unknown): string[] {
   return issues;
 }
 
-function brevityIssues(content: string, maxWords: number, label: string): string[] {
+function brevityIssues(content: string, maxWords: number, label: string, level: ReadingLevel): string[] {
   if (content.trim().split(/\s+/).filter(Boolean).length <= maxWords) return [];
-  return [`Brevity: ${label} should use ${maxWords} words or fewer. Rewrite it for a 10-year-old, keeping the main reason and essential evidence. Do not truncate it.`];
+  return [`Brevity: ${label} should use ${maxWords} words or fewer. Rewrite it for a ${audiencePolicy(level).age}-year-old, keeping the main reason and essential evidence. Do not truncate it.`];
 }
 
-function rulesForSchemaAndRound(schemaName: string, round: unknown): string[] {
+function rulesForSchemaAndRound(schemaName: string, round: unknown, level: ReadingLevel): string[] {
+  const policy = audiencePolicy(level);
   if (schemaName === "claimOutput") {
     return [
-      "Build two or three distinct, topic-specific claims for this side. State each claim in one short sentence. Explain why its evidence supports it in one or two short sentences, using words a 10-year-old would use."
+      `Build two or three distinct, topic-specific claims for this side. State each claim in one short sentence. Explain why its evidence supports it in one or two short sentences, using words a ${policy.age}-year-old would use.`
     ];
   }
   if (schemaName === "followupOutput") {
-    return ["Answer the follow-up directly in 20-45 words, using two to four short sentences. Use only the supplied debate information. Say plainly when it does not answer the question."];
+    return [`Answer the follow-up directly in ${policy.followup} words, using two to four short sentences. Use only the supplied debate information. Say plainly when it does not answer the question.`];
   }
   if (schemaName === "judgeScorecardOutput" || schemaName === "finalSummaryOutput") {
     return [
       "Explain the best reason from each frog and which reason matters most. Ignore claims without evidence and numbers that measure different things. Keep each judge note to one short sentence.",
       "In visible summary copy, call the pro advocate the green frog and the con advocate the pink frog. Avoid abstract pro/con terminology.",
       ...(schemaName === "finalSummaryOutput" ? [
-        "Keep the headline to about 6-10 everyday words. Write the recommendation as two short, complete sentences totaling 15-30 words. Say which answer wins and why. Put each frog's best reason in strongestPro and strongestCon instead of squeezing every detail into the recommendation. Keep each item in strongestPro, strongestCon, unresolvedUncertainties, and whatWouldChangeMind to one plain sentence of 15 words or fewer. Stay within the required 120-character headline and 320-character recommendation limits; rewrite more simply if needed, never truncate."
+        `Keep the headline to about 6-10 everyday words. Write the recommendation as two short, complete sentences totaling ${policy.summary} words. Say which answer wins and why. Put each frog's best reason in strongestPro and strongestCon instead of squeezing every detail into the recommendation. Keep each item in strongestPro, strongestCon, unresolvedUncertainties, and whatWouldChangeMind to one plain sentence of ${policy.itemMax} words or fewer. Stay within the required 120-character headline and 320-character recommendation limits; rewrite more simply if needed, never truncate.`
       ] : []),
       "Calibrate confidence to evidence quality. Domain-name citations alone, social posts, commentary, or an unexplained percentage do not justify high confidence."
     ];
@@ -385,20 +393,20 @@ function rulesForSchemaAndRound(schemaName: string, round: unknown): string[] {
   switch (round) {
     case "opening":
       return [
-        "Opening: write 20-35 words in two or three short sentences. State your answer and your best reason. Add a brief example or important limit only if needed. Do not discuss the opponent yet."
+        `Opening: write ${policy.turn} words in two or three short sentences. State your answer and your best reason. Add a brief example or important limit only if needed. Do not discuss the opponent yet.`
       ];
     case "cross_examination":
       return [
-        "Tough Questions: ask exactly one clear question, usually 8-15 words and no more than 20. Ask about one weak spot in the other frog's reason. End with a question mark. Do not add a preamble, answer the question, or summarize either case."
+        `Tough Questions: ask exactly one clear question, usually ${policy.question} words and no more than ${policy.questionMax}. Ask about one weak spot in the other frog's reason. End with a question mark. Do not add a preamble, answer the question, or summarize either case.`
       ];
     case "rebuttal":
       return [
         "Comeback: answer the opponent's exact question immediately. Then give one simple reason or example that supports your answer. Admit a fair point when needed. Do not begin with 'My opponent asks' or repeat the question.",
-        "Write 20-35 words in two or three short sentences. Give one direct answer and explain why it matters, without recapping your opening."
+        `Write ${policy.turn} words in two or three short sentences. Give one direct answer and explain why it matters, without recapping your opening.`
       ];
     case "closing":
       return [
-        "Last Word: write 20-35 words in two or three short sentences. Say why your best reason matters more than the other frog's main concern. Do not recap every point or introduce new evidence."
+        `Last Word: write ${policy.turn} words in two or three short sentences. Say why your best reason matters more than the other frog's main concern. Do not recap every point or introduce new evidence.`
       ];
     default:
       return [];

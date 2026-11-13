@@ -1,5 +1,7 @@
 "use client";
 
+import { DEFAULT_READING_LEVEL, readReadingLevel, saveReadingLevel, type ReadingLevel } from "@/lib/reading-level";
+
 /**
  * FroglingsWorkspace — the "funner version" of Debatefrog aimed at younger
  * viewers. Consumes the SAME /api/debates POST + SSE stream as the main
@@ -470,6 +472,7 @@ export function FroglingsWorkspace() {
   const [modelOptions, setModelOptions] = useState<ModelOptionsResponse | null>(null);
   const [modelSelections, setModelSelections] = useState<ModelSelections | null>(null);
   const [modelOptionsError, setModelOptionsError] = useState<string | null>(null);
+  const [readingLevel, setReadingLevel] = useState<ReadingLevel>(DEFAULT_READING_LEVEL);
   const [userPreferences, setUserPreferences] = useState<UserPreferences>(defaultUserPreferences);
   // Default to the theater; a stored choice (or reduced-motion) wins.
   const [viewMode, setViewMode] = useState<ViewMode>("theater");
@@ -505,6 +508,7 @@ export function FroglingsWorkspace() {
 
   useEffect(() => {
     setUserPreferences(readStoredUserPreferences());
+    setReadingLevel(readReadingLevel());
   }, []);
 
   useEffect(() => {
@@ -610,6 +614,7 @@ export function FroglingsWorkspace() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           subject,
+          readingLevel,
           mode: "hybrid_council",
           evidence: "cited",
           models: modelSelections ?? undefined,
@@ -773,6 +778,8 @@ export function FroglingsWorkspace() {
         <FroglingsHero
           subject={subject}
           onSubjectChange={setSubject}
+          readingLevel={readingLevel}
+          onReadingLevelChange={(value) => { setReadingLevel(value); saveReadingLevel(value); }}
           isSubmitting={isSubmitting}
           error={submitError}
           onSubmit={runDebate}

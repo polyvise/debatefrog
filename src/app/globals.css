@@ -1392,3 +1392,9 @@ body:has(.welcome-workspace) {
 }
 
 .welcome-workspace header > div > :is(button, a) { min-height: 44px; }
+
+.welcome-reading-level { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin: 0.75rem 0 1rem; }
+.welcome-form .welcome-reading-level label { font-family: inherit; font-size: 0.875rem; font-weight: 700; margin: 0; }
+.welcome-reading-level select { min-height: 44px; max-width: 60%; border: 1px solid #92988b; border-radius: 10px; background: #fffdf1; color: #194b43; padding: 0.5rem 0.75rem; font: inherit; font-size: 0.875rem; }
+.welcome-reading-level select:focus-visible { outline: 3px solid #b77b20; outline-offset: 3px; }
+.welcome-reading-level select:disabled { opacity: 0.6; cursor: wait; }

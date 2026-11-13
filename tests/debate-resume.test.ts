@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DebateRecord } from "@polyvise/core/debate/types";
 import type { LlmRequest } from "@polyvise/core/providers/llm";
 
-const control = vi.hoisted(() => ({ failRole: "final summary", calls: [] as string[], records: new Map<string, DebateRecord>() }));
+const control = vi.hoisted(() => ({ failRole: "final summary", levels: [] as unknown[], calls: [] as string[], records: new Map<string, DebateRecord>() }));
 vi.mock("@/server/repository", async (original) => {
   const module = await original<typeof import("@/server/repository")>();
   return { ...module, createDefaultDebateRepository: () => new module.MemoryDebateRepository({ debates: control.records, feedback: new Map() }) };
@@ -10,6 +10,7 @@ vi.mock("@/server/repository", async (original) => {
 vi.mock("@/server/round-model-provider", async () => {
   const { MockLlmProvider } = await import("@polyvise/core/providers/llm");
   return { RoundModelLlmProvider: class extends MockLlmProvider {
+    constructor(_config: unknown, _models: unknown, level: unknown) { super(); control.levels.push(level); }
     async generateStructured<T>(request: LlmRequest) {
       control.calls.push(request.role);
       if (request.role === control.failRole) throw new Error("Model timed out");
@@ -17,10 +18,11 @@ vi.mock("@/server/round-model-provider", async () => {
     }
   } };
 });
-import { getDebate, retryDebate, startDebate, subscribeToDebate } from "@/server/debate-store";
+import { addFollowup, getDebate, retryDebate, startDebate, subscribeToDebate } from "@/server/debate-store";
 
 beforeEach(() => {
   control.records.clear();
+  control.levels.length = 0;
   control.calls.length = 0;
   control.failRole = "final summary";
   vi.stubEnv("POLYVISE_EVIDENCE_PROVIDER", "mock");
@@ -122,3 +124,17 @@ describe("saved stage retry", () => {
     expect(await retryDebate("missing", 0)).toBeNull();
   });
 });
+
+ it("preserves the selected reading level through retries and follow-up saves", async () => {
+   const started = await startDebate({ subject: "Should schools have longer recess?", readingLevel: "12-14" });
+   await expect(started.completion).rejects.toThrow();
+   control.failRole = "";
+   await retryDebate(started.debate.id, 0);
+   await waitForTerminal(started.debate.id);
+   await addFollowup(started.debate.id, "What matters most?");
+   expect(control.levels).toEqual(["12-14", "12-14", "12-14"]);
+   const saved = control.records.get(started.debate.id);
+   expect(saved).toHaveProperty("readingLevel", "12-14");
+   expect(saved).toHaveProperty("retryState");
+   expect((await getDebate(started.debate.id))?.readingLevel).toBe("12-14");
+ });
