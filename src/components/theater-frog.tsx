@@ -1,4 +1,5 @@
 import type { SVGProps } from "react";
+import { FrogResearchKit } from "@/components/frog-research-kit";
 
 /**
  * TheaterFrog — the richer character rig used by the pond theater.
@@ -61,6 +62,8 @@ interface TheaterFrogProps extends SVGProps<SVGSVGElement> {
   mood: TheaterFrogMood;
   /** When true, the mouth chatters and the throat sac pulses. */
   speaking?: boolean;
+  researching?: boolean;
+  researchActivity?: "search" | "notes";
   expression?: TheaterFrogExpression;
   size?: number;
 }
@@ -77,6 +80,8 @@ function mouthPath(mood: TheaterFrogMood, expression: TheaterFrogExpression): st
 export function TheaterFrog({
   mood,
   speaking = false,
+  researching = false,
+  researchActivity = mood === "con" ? "notes" : "search",
   expression = "idle",
   size = 120,
   className,
@@ -84,7 +89,7 @@ export function TheaterFrog({
 }: TheaterFrogProps) {
   const c = palette[mood];
   const judge = mood === "judge";
-  const composed = ["theater-frog", speaking ? "is-speaking" : "", className]
+  const composed = ["theater-frog", speaking ? "is-speaking" : "", researching ? "is-researching" : "", className]
     .filter(Boolean)
     .join(" ");
   const eyeClass = `theater-frog-eye${expression === "squint" ? " is-squint" : ""}`;
@@ -188,6 +193,7 @@ export function TheaterFrog({
       {/* front feet */}
       <ellipse cx="42" cy="93" rx="13" ry="5.5" fill={c.shade} />
       <ellipse cx="78" cy="93" rx="13" ry="5.5" fill={c.shade} />
+      {researching ? <FrogResearchKit activity={researchActivity} handColor={c.body} /> : null}
     </svg>
   );
 }

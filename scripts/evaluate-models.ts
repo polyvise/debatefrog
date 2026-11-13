@@ -768,7 +768,7 @@ async function judgeRunQuality({
         argumentQuality: "Do the YES and NO cases make meaningful, question-specific arguments rather than generic filler?",
         evidenceUse: "Are claims supported by the provided evidence without exaggerating sources?",
         fairness: "Are both sides represented seriously, with no default YES or NO bias?",
-        ageAppropriateClarity: "Would a middle-school user understand it without being talked down to?",
+        ageAppropriateClarity: "Would a 12-year-old understand each point on the first read without being talked down to? Reward everyday words, short sentences, and concrete explanations. Penalize unexplained jargon, essay-like phrasing, overloaded sentences, and repeated setup. Expect roughly 25-45 words per debate turn, one question of at most 25 words, and a 20-35-word verdict. Shorter complete answers are welcome; do not reward extra length or advanced vocabulary.",
         decisiveness: "Does the judge choose YES or NO when one side is stronger and explain why?",
         groundedness: "Does the verdict follow from the debate content rather than vibes or unsupported assertions? Penalize narrator voice, speaker/subject identity confusion, repeated opponent restatements, incompatible statistic comparisons, unsupported 'studies show' language, citations that do not support the attached claim, and rebuttals that dodge cross-examination questions."
       },
@@ -851,8 +851,10 @@ function scoreReadability(words: string[]) {
   const averageWordLength = words.join("").length / words.length;
   const sentenceCount = Math.max(1, words.join(" ").split(/[.!?]+/).filter(Boolean).length);
   const averageSentenceLength = words.length / sentenceCount;
-  const wordScore = clamp(100 - Math.abs(averageWordLength - 5.2) * 20, 0, 100);
-  const sentenceScore = clamp(100 - Math.max(0, averageSentenceLength - 22) * 4, 0, 100);
+  // A rough style signal, not a reading-grade estimate. Simple words should
+  // never lose points for being shorter than an adult-writing target.
+  const wordScore = clamp(100 - Math.max(0, averageWordLength - 4.5) * 20, 0, 100);
+  const sentenceScore = clamp(100 - Math.max(0, averageSentenceLength - 16) * 4, 0, 100);
   return wordScore * 0.45 + sentenceScore * 0.55;
 }
 

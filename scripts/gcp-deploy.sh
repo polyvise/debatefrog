@@ -42,6 +42,7 @@ gcloud run deploy "$SERVICE" \
   --allow-unauthenticated \
   --memory "${GCP_CLOUD_RUN_MEMORY:-1Gi}" \
   --cpu "${GCP_CLOUD_RUN_CPU:-1}" \
+  --no-cpu-throttling \
   --concurrency 20 \
   --min-instances 0 \
   --max-instances "${GCP_CLOUD_RUN_MAX_INSTANCES:-3}" \

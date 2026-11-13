@@ -1,5 +1,7 @@
 "use client";
 
+import { DEFAULT_READING_LEVEL, readReadingLevel, saveReadingLevel, type ReadingLevel } from "@/lib/reading-level";
+
 /**
  * FroglingsWorkspace — the "funner version" of Debatefrog aimed at younger
  * viewers. Consumes the SAME /api/debates POST + SSE stream as the main
@@ -20,7 +22,6 @@
 const INTRO_SEEN_KEY = "froglings:intro-seen";
 const MODEL_SETTINGS_KEY = "froglings:model-settings:v4";
 const USER_PREFERENCES_KEY = "froglings:user-preferences";
-const VIEW_MODE_KEY = "froglings:view-mode";
 const isPreviewDeploy = process.env.NEXT_PUBLIC_DEPLOY_CHANNEL === "preview";
 const showApiDebugDetails = process.env.NODE_ENV !== "production";
 
@@ -35,10 +36,12 @@ import {
   useState
 } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import type { Route } from "next";
 import {
   AlertTriangle,
   BarChart3,
+  BookOpen,
   CheckCircle2,
   ChevronDown,
   CircleHelp,
@@ -51,14 +54,24 @@ import {
   Sparkles,
   XCircle,
   Volume2,
-  VolumeX,
+  VolumeOff,
   X
 } from "lucide-react";
 import { FunFrog } from "@/components/fun-frog";
 import { SlowPrint } from "@/components/slow-print";
-import { FrogSoundsContext, useFrogSounds } from "@/components/use-frog-sounds";
+import { RoundCountdown } from "@/components/round-countdown";
+import { JudgeThoughtBubble } from "@/components/judge-thought-bubble";
+import { useResearchActivities, researchActivityLabel } from "@/components/use-research-activities";
+import { useJudgeEntranceCroak } from "@/components/use-judge-entrance-croak";
+import { judgeCueOptions, FrogSoundsContext, useFrogSounds } from "@/components/use-frog-sounds";
 import { FroglingsIntro } from "@/components/froglings-intro";
+import { FroglingsHero } from "@/components/froglings-hero";
 import { PondTheater } from "@/components/pond-theater";
+import { DebateHistory, LeaveDebateDialog } from "@/components/debate-navigation";
+import { readDebateHistory, rememberDebate, type DebateHistoryEntry } from "@/lib/debate-history";
+import { roundReadingHoldMs } from "@/lib/froglings-pacing";
+import { watchDebate } from "@/lib/watch-debate";
+import type { RecoverableDebateRecord } from "@/lib/debate-recovery";
 import { buildFroglingsSourceChips, type FroglingsSourceChip } from "@/lib/source-chips";
 import {
   friendlyRound,
@@ -94,14 +107,6 @@ import type {
   Scorecard,
   PlaceholderInfo
 } from "@polyvise/core/debate/types";
-
-const kidPrompts = [
-  "Should schools have longer recess?",
-  "Should kids be allowed to vote?",
-  "Should video games count as exercise?",
-  "Should pets be allowed at school?",
-  "Should homework be banned?"
-];
 
 type StartCountdownCue = {
   delayMs: number;
@@ -146,7 +151,6 @@ type UserPreferences = {
  * "classic" is the original round-card view (also the reduced-motion
  * and screen-reader friendly fallback). Persisted per browser.
  */
-type ViewMode = "theater" | "classic";
 const defaultUserPreferences: UserPreferences = {
   openingSplash: true,
   liveApisInDev: false
@@ -181,15 +185,17 @@ export type FroglingsLiveState = {
   modelSnapshots: ModelSnapshot[];
   trace: RunTraceEntry[];
   done: boolean;
+  recovery?: RecoverableDebateRecord["recovery"];
 };
 
 type LiveAction =
-  | { type: "init"; debateId: string; subject: string }
+  | { type: "init"; debateId: string; subject: string; recovery?: RecoverableDebateRecord["recovery"] }
   | { type: "event"; event: DebateLiveEvent }
-  | { type: "hydrate"; debate: DebateRecord }
+  | { type: "hydrate"; debate: RecoverableDebateRecord }
+  | { type: "resume"; debate: RecoverableDebateRecord }
   | { type: "reset" };
 
-function liveReducer(state: FroglingsLiveState | null, action: LiveAction): FroglingsLiveState | null {
+export function liveReducer(state: FroglingsLiveState | null, action: LiveAction): FroglingsLiveState | null {
   if (action.type === "reset") return null;
   if (action.type === "init") {
     return {
@@ -206,12 +212,29 @@ function liveReducer(state: FroglingsLiveState | null, action: LiveAction): Frog
       backupReasons: [],
       modelSnapshots: [],
       trace: [],
-      done: false
+      done: false,
+      recovery: action.recovery
     };
   }
+  if (action.type === "resume") {
+    if (!state || state.debateId !== action.debate.id) return state;
+    if (action.debate.status === "complete") return liveReducer(state, { type: "hydrate", debate: action.debate });
+    return { ...state, recovery: action.debate.recovery, status: action.debate.status, done: false, errorMessage: null };
+  }
   if (action.type === "hydrate") {
+    if (!state || state.debateId !== action.debate.id) return state;
     const run = action.debate.latestRun;
-    if (!run) return state;
+    if (!run) {
+      for (const event of action.debate.liveEvents ?? []) state = liveReducer(state, { type: "event", event });
+      if (!state) return state;
+      state = { ...state, recovery: action.debate.recovery ?? state.recovery };
+      if (action.debate.status === "failed" || action.debate.status === "partial" || action.debate.status === "complete") {
+        return liveReducer(state, { type: "event", event: {
+          kind: "error", message: "The frogs couldn't finish this step. You can try it again."
+        } });
+      }
+      return state;
+    }
     return {
       debateId: action.debate.id,
       subject: action.debate.subject,
@@ -228,7 +251,8 @@ function liveReducer(state: FroglingsLiveState | null, action: LiveAction): Frog
       backupReasons: backupReasonsFromRun(run),
       modelSnapshots: run.modelSnapshots,
       trace: run.trace,
-      done: action.debate.status === "complete" || action.debate.status === "failed"
+      done: ["complete", "failed", "partial"].includes(action.debate.status),
+      recovery: action.debate.recovery
     };
   }
   if (!state) return state;
@@ -251,7 +275,7 @@ function liveReducer(state: FroglingsLiveState | null, action: LiveAction): Frog
     case "turns":
       return event.placeholder
         ? addBackupReason(state, event.placeholder)
-        : { ...state, turns: [...state.turns, ...event.turns] };
+        : { ...state, turns: [...new Map([...state.turns, ...event.turns].map((turn) => [turn.id, turn])).values()] };
     case "scorecard":
       return event.placeholder
         ? addBackupReason(state, event.placeholder)
@@ -435,9 +459,14 @@ function formatDuration(durationMs: number): string {
 // -------------------------------------------------------------------------
 
 export function FroglingsWorkspace() {
+  const router = useRouter();
   const [subject, setSubject] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [isRetrying, setIsRetrying] = useState(false);
+  const [retryError, setRetryError] = useState<string | null>(null);
+  const retryPendingRef = useRef(false);
+  const retryRequestRef = useRef<AbortController | null>(null);
   const [live, dispatch] = useReducer(liveReducer, null);
   const [, setDebate] = useState<DebateRecord | null>(null);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
@@ -445,11 +474,18 @@ export function FroglingsWorkspace() {
   const [modelOptions, setModelOptions] = useState<ModelOptionsResponse | null>(null);
   const [modelSelections, setModelSelections] = useState<ModelSelections | null>(null);
   const [modelOptionsError, setModelOptionsError] = useState<string | null>(null);
+  const [readingLevel, setReadingLevel] = useState<ReadingLevel>(DEFAULT_READING_LEVEL);
   const [userPreferences, setUserPreferences] = useState<UserPreferences>(defaultUserPreferences);
-  // Default to the theater; a stored choice (or reduced-motion) wins.
-  const [viewMode, setViewMode] = useState<ViewMode>("theater");
-  const eventSourceRef = useRef<EventSource | null>(null);
+  const stopWatchingRef = useRef<(() => void) | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [history, setHistory] = useState<DebateHistoryEntry[]>([]);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [loadingHistoryId, setLoadingHistoryId] = useState<string | null>(null);
+  const [historySaved, setHistorySaved] = useState(false);
+  const [destination, setDestination] = useState<string | null>(null);
+  const historyRequestRef = useRef<AbortController | null>(null);
   const sounds = useFrogSounds();
+  useJudgeEntranceCroak(live?.debateId, sounds);
   const soundControls = useMemo(
     () => ({
       ready: sounds.ready,
@@ -479,49 +515,21 @@ export function FroglingsWorkspace() {
 
   useEffect(() => {
     setUserPreferences(readStoredUserPreferences());
+    setReadingLevel(readReadingLevel());
+    setHistory(readDebateHistory());
   }, []);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      const stored = window.localStorage.getItem(VIEW_MODE_KEY);
-      if (stored === "classic" || stored === "theater") {
-        setViewMode(stored);
-        return;
-      }
-    } catch {
-      // localStorage unavailable; keep the default.
-    }
-    // No stored choice: reduced-motion users get the calmer classic view.
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      setViewMode("classic");
-    }
-  }, []);
+    if (!live) return;
+    setHistorySaved(rememberDebate({ id: live.debateId, subject: live.subject, status: live.status, createdAt: new Date().toISOString() }));
+    setHistory(readDebateHistory());
+  }, [live?.debateId, live?.subject, live?.status]);
 
-  // While a debate is playing in theater mode, dim the whole page to the
-  // stage's swamp-water palette (see body.theater-ambient in globals.css).
-  const theaterAmbient = viewMode === "theater" && live !== null;
+  // Theater is the only debate view, including for returning visitors.
   useEffect(() => {
-    if (typeof document === "undefined") return;
-    document.body.classList.toggle("theater-ambient", theaterAmbient);
-    return () => {
-      document.body.classList.remove("theater-ambient");
-    };
-  }, [theaterAmbient]);
-
-  const toggleViewMode = () => {
-    setViewMode((current) => {
-      const next: ViewMode = current === "theater" ? "classic" : "theater";
-      try {
-        if (typeof window !== "undefined") {
-          window.localStorage.setItem(VIEW_MODE_KEY, next);
-        }
-      } catch {
-        // ignore storage failures
-      }
-      return next;
-    });
-  };
+    document.body.classList.add("theater-ambient");
+    return () => document.body.classList.remove("theater-ambient");
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -562,17 +570,20 @@ export function FroglingsWorkspace() {
 
   useEffect(() => {
     return () => {
-      eventSourceRef.current?.close();
+      stopWatchingRef.current?.();
+      historyRequestRef.current?.abort();
+      retryRequestRef.current?.abort();
+      retryRequestRef.current = null;
     };
   }, []);
 
   async function runDebate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (subject.trim().length < 4 || isSubmitting) return;
+    if (subject.trim().length < 4 || isSubmitting || loadingHistoryId) return;
     setIsSubmitting(true);
     setSubmitError(null);
     setDebate(null);
-    eventSourceRef.current?.close();
+    stopWatchingRef.current?.();
     // The form submit is the user's first explicit interaction — that's
     // our chance to unlock the AudioContext under browser autoplay rules.
     void sounds.unlock();
@@ -583,6 +594,7 @@ export function FroglingsWorkspace() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           subject,
+          readingLevel,
           mode: "hybrid_council",
           evidence: "cited",
           models: modelSelections ?? undefined,
@@ -598,67 +610,23 @@ export function FroglingsWorkspace() {
           councilSize: "duo"
         })
       });
-      const payload = (await response.json()) as { debate?: DebateRecord; error?: string };
+      const payload = (await response.json()) as { debate?: RecoverableDebateRecord; error?: string };
       if (!response.ok || !payload.debate) {
         throw new Error(payload.error ?? DEBATE_UNAVAILABLE_MESSAGE);
       }
 
       const seed = payload.debate;
-      dispatch({ type: "init", debateId: seed.id, subject: seed.subject });
+      rememberDebate(seed);
+      dispatch({ type: "init", debateId: seed.id, subject: seed.subject, recovery: seed.recovery });
 
-      const es = new EventSource(`/api/debates/${seed.id}/events`);
-      eventSourceRef.current = es;
-
-      const eventKinds: DebateLiveEvent["kind"][] = [
-        "stage",
-        "framed",
-        "scouts",
-        "teams",
-        "sources",
-        "claims",
-        "argument_map",
-        "turns",
-        "scorecard",
-        "summary",
-        "model_snapshot",
-        "complete",
-        "error"
-      ];
-      for (const kind of eventKinds) {
-        es.addEventListener(kind, (msgEvent) => {
-          try {
-            const parsed = JSON.parse((msgEvent as MessageEvent).data) as DebateLiveEvent;
-            dispatch({ type: "event", event: parsed });
-          } catch {
-            // ignore malformed
-          }
-        });
-      }
-
-      const finalize = async () => {
-        es.close();
-        eventSourceRef.current = null;
-        try {
-          const finalRes = await fetchWithRetry(`/api/debates/${seed.id}`, { cache: "no-store" });
-          const finalPayload = (await finalRes.json()) as { debate?: DebateRecord };
-          if (finalPayload.debate) {
-            setDebate(finalPayload.debate);
-            dispatch({ type: "hydrate", debate: finalPayload.debate });
-          }
-        } catch {
-          // ignore
+      stopWatchingRef.current = watchDebate(
+        seed.id,
+        (event) => dispatch({ type: "event", event }),
+        (debate) => {
+          setDebate(debate);
+          dispatch({ type: "hydrate", debate });
         }
-      };
-      es.addEventListener("complete", () => void finalize());
-      es.addEventListener("error", (streamEvent) => {
-        if (streamEvent instanceof MessageEvent) {
-          void finalize();
-        }
-      });
-      es.addEventListener("closed", () => {
-        es.close();
-        eventSourceRef.current = null;
-      });
+      );
     } catch (caughtError) {
       setSubmitError(
         caughtError instanceof Error ? caughtError.message : DEBATE_UNAVAILABLE_MESSAGE
@@ -668,20 +636,142 @@ export function FroglingsWorkspace() {
     }
   }
 
+  async function retryFailedStep() {
+    if (!live || !live.recovery?.available || retryPendingRef.current) return;
+    retryPendingRef.current = true;
+    setIsRetrying(true);
+    setRetryError(null);
+    stopWatchingRef.current?.();
+    const controller = new AbortController();
+    retryRequestRef.current = controller;
+    const timeout = window.setTimeout(() => controller.abort(), 20_000);
+    try {
+      const response = await fetch(`/api/debates/${live.debateId}/retry`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ attempt: live.recovery.attempt }), signal: controller.signal
+      });
+      const payload = await response.json() as { debate?: RecoverableDebateRecord; error?: string };
+      if (retryRequestRef.current !== controller) return;
+      if (!response.ok || !payload.debate) {
+        if (payload.debate) dispatch({ type: "hydrate", debate: payload.debate });
+        throw new Error(payload.error ?? "We couldn't reconnect. Please try again.");
+      }
+      dispatch({ type: "resume", debate: payload.debate });
+      if (payload.debate.status !== "complete") {
+        stopWatchingRef.current = watchDebate(live.debateId,
+          (event) => dispatch({ type: "event", event }),
+          (debate) => dispatch({ type: "hydrate", debate }),
+          payload.debate.recovery?.attempt ?? 0
+        );
+      }
+    } catch (error) {
+      if (retryRequestRef.current === controller) setRetryError(
+        error instanceof Error && error.name !== "AbortError" ? error.message : "The connection took too long. Your finished rounds are saved. Try again."
+      );
+    } finally {
+      window.clearTimeout(timeout);
+      if (retryRequestRef.current === controller) {
+        retryRequestRef.current = null;
+        retryPendingRef.current = false;
+        setIsRetrying(false);
+      }
+    }
+  }
+
   function startOver() {
-    eventSourceRef.current?.close();
-    eventSourceRef.current = null;
+    retryRequestRef.current?.abort();
+    retryRequestRef.current = null;
+    retryPendingRef.current = false;
+    setIsRetrying(false);
+    setRetryError(null);
+    stopWatchingRef.current?.();
+    stopWatchingRef.current = null;
     setDebate(null);
     dispatch({ type: "reset" });
+    setSubject("");
     setSubmitError(null);
   }
 
+  function requestNavigation(next: string) {
+    if (isSubmitting || loadingHistoryId) return;
+    if (next === live?.debateId) {
+      setHistoryOpen(false);
+      return;
+    }
+    if (live || subject.trim()) setDestination(next);
+    else void navigate(next);
+  }
+
+  function closeHistory() {
+    historyRequestRef.current?.abort();
+    historyRequestRef.current = null;
+    setLoadingHistoryId(null);
+    setHistoryOpen(false);
+    requestAnimationFrame(() => document.querySelector<HTMLButtonElement>('[aria-controls="debate-history"]')?.focus());
+  }
+
+  async function navigate(next: string) {
+    setDestination(null);
+    if (next === "stats") {
+      router.push("/stats");
+      return;
+    }
+    if (next === "new") {
+      startOver();
+      setHistoryOpen(false);
+      requestAnimationFrame(() => document.getElementById("subject")?.focus());
+      return;
+    }
+    const controller = new AbortController();
+    historyRequestRef.current = controller;
+    setLoadingHistoryId(next);
+    setHistoryError(null);
+    const timeout = window.setTimeout(() => controller.abort(), 15_000);
+    try {
+      const response = await fetch(`/api/debates/${encodeURIComponent(next)}`, { cache: "no-store", signal: controller.signal });
+      const payload = await response.json() as { debate?: RecoverableDebateRecord };
+      if (!response.ok || !payload.debate || payload.debate.id !== next) {
+        throw new Error(response.status === 404 ? "We couldn’t find that debate. It may no longer be saved." : "That debate didn’t open. Please try again.");
+      }
+      if (historyRequestRef.current !== controller) return;
+      // Keep the current debate intact until the selected record is loaded.
+      startOver();
+      const record = payload.debate;
+      rememberDebate(record);
+      dispatch({ type: "init", debateId: record.id, subject: record.subject, recovery: record.recovery });
+      dispatch({ type: "hydrate", debate: record });
+      const active = !["complete", "failed", "partial"].includes(record.status);
+      // Existing reducer merges replayed turns by ID, preserving saved progress
+      // even when the original worker is no longer connected.
+      if (active) {
+        stopWatchingRef.current = watchDebate(record.id,
+          (event) => dispatch({ type: "event", event }),
+          (debate) => dispatch({ type: "hydrate", debate }), record.recovery?.attempt ?? 0);
+      }
+      setHistoryOpen(false);
+      requestAnimationFrame(() => document.getElementById("debate-home")?.focus());
+    } catch (error) {
+      if (historyRequestRef.current === controller) setHistoryError(
+        error instanceof Error && error.name !== "AbortError" ? error.message : "That debate took too long to open. Please try again.");
+    } finally {
+      window.clearTimeout(timeout);
+      if (historyRequestRef.current === controller) {
+        historyRequestRef.current = null;
+        setLoadingHistoryId(null);
+      }
+    }
+  }
+
   return (
-    <main className="mx-auto w-full max-w-[960px] px-4 py-6 sm:py-10">
-      <header className="flex items-center justify-between">
-        <Link
-          href={"/" as Route}
-          className={`flex items-center gap-3 ${theaterAmbient ? "text-cream" : "text-pond"}`}
+    <main className={`mx-auto w-full max-w-[960px] px-4 py-6 sm:py-10${!live ? " welcome-workspace" : ""}`}>
+      <header className="workspace-navigation flex flex-wrap items-center justify-between gap-3">
+        <button
+          id="debate-home"
+          type="button"
+          onClick={() => requestNavigation("new")}
+          disabled={isSubmitting || Boolean(loadingHistoryId)}
+          aria-label="DebateFrog — new question"
+          className="workspace-home flex min-h-11 items-center gap-3 rounded-lg text-cream disabled:opacity-60"
         >
           <FunFrog mood="idle" size={42} bob={false} />
           <span className="text-lg font-black tracking-tight">DebateFrog</span>
@@ -690,48 +780,40 @@ export function FroglingsWorkspace() {
               Preview
             </span>
           ) : null}
-        </Link>
-        <div className="flex items-center gap-3">
+        </button>
+        <div className="flex flex-wrap items-center gap-3">
+          <button type="button" aria-expanded={historyOpen} aria-controls="debate-history"
+            disabled={isSubmitting || Boolean(loadingHistoryId)}
+            onClick={() => { setHistory(readDebateHistory()); setHistoryOpen(!historyOpen); setHistoryError(null); }}
+            className="inline-flex min-h-11 items-center gap-1.5 rounded-full bg-white/90 px-3 py-1.5 text-xs font-bold text-pond shadow-sm transition hover:bg-white disabled:opacity-60">
+            <BookOpen className="h-3.5 w-3.5" aria-hidden="true" />
+            My debates
+          </button>
           <button
             type="button"
-            onClick={toggleViewMode}
-            aria-pressed={viewMode === "theater"}
-            title={
-              viewMode === "theater"
-                ? "Switch to the classic card view"
-                : "Switch to the pond theater view"
-            }
-            className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-bold shadow-sm transition ${
-              viewMode === "theater"
-                ? `bg-pond text-cream hover:bg-leafDark${theaterAmbient ? " ring-1 ring-cream/30" : ""}`
-                : "bg-white/70 text-pond hover:bg-white"
-            }`}
-          >
-            <Sparkles className="h-3.5 w-3.5" />
-            Theater
-          </button>
-          <Link
-            href={"/stats" as Route}
-            className="inline-flex items-center gap-1.5 rounded-full bg-white/70 px-3 py-1.5 text-xs font-bold text-pond shadow-sm transition hover:bg-white"
+            onClick={() => requestNavigation("stats")}
+            disabled={isSubmitting || Boolean(loadingHistoryId)}
+            className="inline-flex min-h-11 items-center gap-1.5 rounded-full bg-white/70 px-3 py-1.5 text-xs font-bold text-pond shadow-sm transition hover:bg-white disabled:opacity-60"
           >
             <BarChart3 className="h-3.5 w-3.5" />
             Pond stats
-          </Link>
+          </button>
           <button
             type="button"
             onClick={sounds.toggleMute}
             aria-pressed={sounds.muted}
             aria-label={sounds.muted ? "Unmute frog sounds" : "Mute frog sounds"}
             title={sounds.muted ? "Unmute frog sounds" : "Mute frog sounds"}
-            className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-white/70 text-pond shadow-sm transition hover:bg-white"
+            className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white/90 text-pond shadow-sm transition hover:bg-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-leaf"
           >
-            {sounds.muted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
+            {sounds.muted ? <VolumeOff className="h-6 w-6" aria-hidden="true" /> : <Volume2 className="h-6 w-6" aria-hidden="true" />}
           </button>
           {live ? (
             <button
               type="button"
-              onClick={startOver}
-              className="inline-flex items-center gap-1.5 rounded-full bg-white/70 px-3 py-1.5 text-xs font-bold text-pond shadow-sm transition hover:bg-white"
+              onClick={() => requestNavigation("new")}
+              disabled={Boolean(loadingHistoryId)}
+              className="inline-flex min-h-11 items-center gap-1.5 rounded-full bg-white/70 px-3 py-1.5 text-xs font-bold text-pond shadow-sm transition hover:bg-white disabled:opacity-60"
             >
               <RotateCcw className="h-3.5 w-3.5" />
               New question
@@ -740,21 +822,25 @@ export function FroglingsWorkspace() {
         </div>
       </header>
 
+      {historyOpen ? <DebateHistory entries={history} currentId={live?.debateId} loadingId={loadingHistoryId}
+        error={historyError} onOpen={requestNavigation} onClose={closeHistory} /> : null}
+      {live && !historySaved ? <p role="status" className="mt-4 text-sm text-cream">This browser couldn’t save a link in My debates. Keep this page open to keep reading.</p> : null}
+      {destination ? <LeaveDebateDialog destination={destination === "stats" ? "stats" : destination === "new" ? "new" : "history"}
+        hasDebate={Boolean(live)} saved={historySaved} onCancel={() => setDestination(null)} onConfirm={() => void navigate(destination)} /> : null}
+
       {!live ? (
         <FroglingsHero
           subject={subject}
           onSubjectChange={setSubject}
-          isSubmitting={isSubmitting}
+          readingLevel={readingLevel}
+          onReadingLevelChange={(value) => { setReadingLevel(value); saveReadingLevel(value); }}
+          isSubmitting={isSubmitting || Boolean(loadingHistoryId)}
           error={submitError}
           onSubmit={runDebate}
         />
       ) : (
         <FrogSoundsContext.Provider value={soundControls}>
-          {viewMode === "theater" ? (
-            <PondTheater live={live} />
-          ) : (
-            <FroglingsLive live={live} preferences={userPreferences} />
-          )}
+          <PondTheater live={live} onRetry={live.recovery?.available ? retryFailedStep : undefined} retrying={isRetrying} retryError={retryError} />
         </FrogSoundsContext.Provider>
       )}
 
@@ -1325,158 +1411,8 @@ function storeUserPreferences(preferences: UserPreferences) {
 }
 
 // -------------------------------------------------------------------------
-// Question entry
-// -------------------------------------------------------------------------
-
-function FroglingsHero({
-  subject,
-  onSubjectChange,
-  isSubmitting,
-  error,
-  onSubmit
-}: {
-  subject: string;
-  onSubjectChange: (value: string) => void;
-  isSubmitting: boolean;
-  error: string | null;
-  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
-}) {
-  const [isQuestionFocused, setIsQuestionFocused] = useState(false);
-  const exampleQuestion = kidPrompts[0];
-
-  return (
-    <section className="mt-6 grid gap-8 lg:mt-10 lg:grid-cols-[minmax(0,1fr)_minmax(320px,420px)]">
-      <div className="flex flex-col justify-center">
-        <h1
-          className="font-black leading-[1.12] text-pond"
-          style={{ fontSize: "clamp(2.4rem, 6vw, 4rem)" }}
-        >
-          Two sides.
-          <br />
-          One judge.
-          <br />
-          One big question.
-        </h1>
-        <p className="mt-4 max-w-[480px] text-base leading-relaxed text-ink/80">
-          One YES frog and one NO frog will debate your question. The judge frog picks the winner.
-          You get to watch the whole thing!
-        </p>
-        <div className="mt-5 flex items-center gap-3">
-          <div className="flex flex-col items-center">
-            <FunFrog mood="pro" size={64} />
-            <span className="mt-1 text-[11px] font-black uppercase tracking-wide text-pond">
-              YES frog
-            </span>
-          </div>
-          <span className="text-sm font-black text-mud/60">vs.</span>
-          <div className="flex flex-col items-center">
-            <FunFrog mood="con" size={64} />
-            <span className="mt-1 text-[11px] font-black uppercase tracking-wide text-berry">
-              NO frog
-            </span>
-          </div>
-          <span className="text-sm font-black text-mud/60">+</span>
-          <div className="flex flex-col items-center">
-            <FunFrog mood="judge" size={64} />
-            <span className="mt-1 text-[11px] font-black uppercase tracking-wide text-[#5c4583]">
-              Judge frog
-            </span>
-          </div>
-        </div>
-      </div>
-
-      <form
-        onSubmit={onSubmit}
-        className="rounded-2xl border border-mud/20 bg-panel/90 p-5 shadow-lily backdrop-blur"
-      >
-        <label htmlFor="subject" className="text-sm font-extrabold text-mud">
-          What should the frogs argue about?
-        </label>
-        <textarea
-          id="subject"
-          value={subject}
-          onChange={(event) => onSubjectChange(event.target.value)}
-          onFocus={() => setIsQuestionFocused(true)}
-          onBlur={() => setIsQuestionFocused(false)}
-          placeholder={isQuestionFocused ? "" : exampleQuestion}
-          className="mt-1.5 min-h-[100px] w-full resize-y rounded-xl border border-mud/20 bg-white/90 px-3.5 py-3 text-base leading-relaxed text-ink outline-none transition focus:border-leaf"
-        />
-
-        {error ? (
-          <div className="mt-4 rounded-xl border border-berry/40 bg-berry/10 px-3 py-2.5 text-sm text-berry">
-            {error}
-          </div>
-        ) : null}
-
-        <button
-          type="submit"
-          disabled={isSubmitting || subject.trim().length < 4}
-          className="mt-4 inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-br from-pond to-leafDark px-4 text-sm font-black text-white shadow-lily transition hover:opacity-95 disabled:cursor-not-allowed disabled:bg-mud/30 disabled:from-mud/30 disabled:to-mud/30 disabled:shadow-none"
-        >
-          {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-          Start the debate!
-        </button>
-
-        <div className="mt-5">
-          <div className="mb-2 text-[11px] font-extrabold uppercase tracking-wide text-mud/70">
-            Or pick a question
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {kidPrompts.map((prompt) => (
-              <button
-                key={prompt}
-                type="button"
-                onClick={() => onSubjectChange(prompt)}
-                className="rounded-full border border-pond/15 bg-white/70 px-3 py-1.5 text-xs font-semibold text-pond transition hover:bg-mint"
-              >
-                {prompt}
-              </button>
-            ))}
-          </div>
-        </div>
-      </form>
-    </section>
-  );
-}
-
-// -------------------------------------------------------------------------
 // Live view — kid-friendly stage banner, named frogs, round bubbles, verdict
 // -------------------------------------------------------------------------
-
-function FroglingsLive({
-  live,
-  preferences
-}: {
-  live: FroglingsLiveState;
-  preferences: UserPreferences;
-}) {
-  const staged = useStagedFroglingsTurns(live);
-  const countdownStarted = isStartCountdownStarted(live);
-  const showStartSequence = useStartSequenceVisibility(
-    live,
-    staged,
-    preferences.openingSplash,
-    countdownStarted
-  );
-  const slowWait = useSlowFrogWait(live, staged, showStartSequence);
-
-  return (
-    <div className="mt-6 space-y-5">
-      <QuestionBanner live={live} staged={staged} showStartSequence={showStartSequence} slowWait={slowWait} />
-      {(live.backupReasons ?? []).length > 0 && !showStartSequence ? <BackupAnswersNotice /> : null}
-      {showStartSequence ? (
-        <DebateStartSequence live={live} countdownStarted={countdownStarted} />
-      ) : null}
-      {live.teams && !preferences.openingSplash ? <FrogIntros teams={live.teams} /> : null}
-      {!showStartSequence ? (
-        <>
-          <Rounds live={live} visibleTurns={staged.visibleTurns} onTurnComplete={staged.showNextTurn} />
-          <Verdict live={live} readyForVerdict={staged.readyForVerdict} />
-        </>
-      ) : null}
-    </div>
-  );
-}
 
 type SlowFrogWaitState = {
   visible: boolean;
@@ -1680,12 +1616,25 @@ function isStartCountdownStarted(live: FroglingsLiveState) {
   return live.status === "debating" || live.turns.length > 0 || live.done;
 }
 
+function isPreparingOpening(live: FroglingsLiveState) {
+  return !live.done && (live.status === "researching" || (
+    live.status === "debating" && !live.turns.some((turn) => turn.round === "opening" && turn.side === "pro")
+  ));
+}
+
 function useStagedFroglingsTurns(live: FroglingsLiveState) {
   const debateTurns = useMemo(() => orderedFroglingsTurns(live.turns), [live.turns]);
   const [visibleCount, setVisibleCount] = useState(0);
+  const [roundHoldEndsAt, setRoundHoldEndsAt] = useState<number | null>(null);
+  const advanceTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     setVisibleCount(debateTurns.length > 0 ? 1 : 0);
+    setRoundHoldEndsAt(null);
+    return () => {
+      if (advanceTimerRef.current !== null) window.clearTimeout(advanceTimerRef.current);
+      advanceTimerRef.current = null;
+    };
   }, [live.debateId]);
 
   useEffect(() => {
@@ -1697,10 +1646,18 @@ function useStagedFroglingsTurns(live: FroglingsLiveState) {
   }, [debateTurns.length]);
 
   const showNextTurn = useCallback(() => {
-    window.setTimeout(() => {
+    if (advanceTimerRef.current !== null) return;
+    const completedTurn = debateTurns[visibleCount - 1];
+    const holdMs = completedTurn?.side === "con"
+      ? roundReadingHoldMs(debateTurns.filter((turn) => turn.round === completedTurn.round).map(froglingsBubbleText))
+      : 450;
+    if (completedTurn?.side === "con") setRoundHoldEndsAt(Date.now() + holdMs);
+    advanceTimerRef.current = window.setTimeout(() => {
+      advanceTimerRef.current = null;
+      setRoundHoldEndsAt(null);
       setVisibleCount((count) => count + 1);
-    }, 450);
-  }, []);
+    }, holdMs);
+  }, [debateTurns, visibleCount]);
 
   const visibleTurns = debateTurns.slice(0, visibleCount);
   const readyForVerdict =
@@ -1712,6 +1669,7 @@ function useStagedFroglingsTurns(live: FroglingsLiveState) {
 
   return {
     visibleTurns,
+    roundHoldEndsAt,
     readyForVerdict,
     showNextTurn,
     hasTurns: debateTurns.length > 0,
@@ -1720,19 +1678,23 @@ function useStagedFroglingsTurns(live: FroglingsLiveState) {
   };
 }
 
-async function fetchWithRetry(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+export async function fetchWithRetry(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   let lastError: unknown;
+  const method = (init?.method ?? (input instanceof Request ? input.method : "GET")).toUpperCase();
+  // Creating a debate or sending feedback has no idempotency key. An unclear
+  // network result must not silently create another run (and another bill).
+  const maxAttempts = method === "GET" || method === "HEAD" ? CLIENT_API_MAX_ATTEMPTS : 1;
 
-  for (let attempt = 1; attempt <= CLIENT_API_MAX_ATTEMPTS; attempt += 1) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
       const response = await fetch(input, init);
-      if (!isRetriableClientResponse(response) || attempt >= CLIENT_API_MAX_ATTEMPTS) {
+      if (!isRetriableClientResponse(response) || attempt >= maxAttempts) {
         return response;
       }
       lastError = new Error(`Request failed with ${response.status}.`);
     } catch (error) {
       lastError = error;
-      if (attempt >= CLIENT_API_MAX_ATTEMPTS) {
+      if (attempt >= maxAttempts) {
         break;
       }
     }
@@ -1895,6 +1857,7 @@ function DebateStartSequence({
   const hasPlayedCueRef = useRef(false);
   const sequenceRef = useRef<HTMLElement>(null);
   const [countdownTitleActive, setCountdownTitleActive] = useState(false);
+  const researchActivities = useResearchActivities(isPreparingOpening(live));
   const activeStep = startSequenceStepIndex(live);
   const copy = startSequenceCopy(live, countdownTitleActive);
 
@@ -1972,10 +1935,10 @@ function DebateStartSequence({
             ) : null}
           </div>
           <div className="start-frog start-frog-pro">
-            <FunFrog mood="pro" size={64} />
+            <FunFrog mood="pro" size={64} researching={isPreparingOpening(live)} researchActivity={researchActivities.pro} />
           </div>
           <div className="start-frog start-frog-con">
-            <FunFrog mood="con" size={64} />
+            <FunFrog mood="con" size={64} researching={isPreparingOpening(live)} researchActivity={researchActivities.con} />
           </div>
           <div className="start-frog start-frog-judge">
             <FunFrog mood="judge" size={58} bob={false} />
@@ -2033,7 +1996,8 @@ function startSequenceCopy(live: FroglingsLiveState, countdownTitleActive: boole
   };
 }
 
-function FrogIntros({ teams }: { teams: DebateTeam }) {
+function FrogIntros({ teams, researching }: { teams: DebateTeam; researching: boolean }) {
+  const researchActivities = useResearchActivities(researching);
   const pro = teams.pro[0];
   const con = teams.con[0];
   const sounds = useContext(FrogSoundsContext);
@@ -2060,23 +2024,23 @@ function FrogIntros({ teams }: { teams: DebateTeam }) {
   return (
     <section className="grid gap-3 md:grid-cols-2">
       <div className="flex items-center gap-3 rounded-2xl border border-leaf/30 bg-mint/40 p-3">
-        <FunFrog mood="pro" size={56} hop />
+        <FunFrog mood="pro" size={56} hop researching={researching} researchActivity={researchActivities.pro} />
         <div className="min-w-0">
           <div className="text-[11px] font-black uppercase tracking-wide text-pond">YES frog</div>
           <div className="mt-0.5 text-sm font-bold text-ink truncate">
             {pro ? froglingsFrogName("pro") : "—"}
           </div>
-          <div className="text-xs text-ink/60">Argues the YES side</div>
+          <div className="text-xs text-ink/60">{researching ? researchActivityLabel(researchActivities.pro) : "Argues the YES side"}</div>
         </div>
       </div>
       <div className="flex items-center gap-3 rounded-2xl border border-berry/30 bg-lily/40 p-3">
-        <FunFrog mood="con" size={56} hop />
+        <FunFrog mood="con" size={56} hop researching={researching} researchActivity={researchActivities.con} />
         <div className="min-w-0">
           <div className="text-[11px] font-black uppercase tracking-wide text-berry">NO frog</div>
           <div className="mt-0.5 text-sm font-bold text-ink truncate">
             {con ? froglingsFrogName("con") : "—"}
           </div>
-          <div className="text-xs text-ink/60">Argues the NO side</div>
+          <div className="text-xs text-ink/60">{researching ? researchActivityLabel(researchActivities.con) : "Argues the NO side"}</div>
         </div>
       </div>
     </section>
@@ -2269,7 +2233,7 @@ function Verdict({
     hasPlayedJudgeIntroRef.current = true;
 
     scrollActiveFrogIntoView(pendingVerdictRef.current);
-    sounds.play("judge", { random: true });
+    sounds.play("judge", { ...judgeCueOptions, random: true });
     const timer = window.setTimeout(() => sounds.stop("judge"), 520);
 
     return () => {
@@ -2283,7 +2247,7 @@ function Verdict({
     hasPlayedVerdictRef.current = true;
 
     scrollActiveFrogIntoView(verdictRef.current);
-    sounds.play("judge");
+    sounds.play("judge", judgeCueOptions);
     const timer = window.setTimeout(() => sounds.stop("judge"), 420);
 
     return () => {
@@ -2309,7 +2273,10 @@ function Verdict({
           className="hop-in rounded-2xl border border-mud/20 bg-panel/90 p-5 shadow-lily"
         >
           <div className="flex items-center gap-3 text-sm text-mud/70">
-            <FunFrog mood="judge" size={48} bob speaking={isJudging} />
+            <div className="flex shrink-0 flex-col items-center gap-6">
+              {isJudging ? <JudgeThoughtBubble /> : null}
+              <FunFrog mood="judge" size={48} bob />
+            </div>
             <div className="min-w-0">
               <div className="flex items-center gap-2 font-bold text-pond">
                 {isJudging ? <Loader2 className="h-3.5 w-3.5 animate-spin text-leaf" /> : null}

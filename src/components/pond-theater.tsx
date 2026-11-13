@@ -12,7 +12,7 @@
  *   - debating: one round at a time. Yes Frog's turn types out first;
  *     once it's done it stays put while No Frog's turn types out beside
  *     it, so both comments are visible together. Once both are done the
- *     scene holds for a couple seconds before the next round begins.
+ *     scene holds for six seconds before the next round begins.
  *   - judging: the pond quiets while the judge frog thinks
  *   - verdict: the lily-pad seesaw tips toward the winner, petals
  *     fall, and confidence fills a water jar
@@ -24,13 +24,18 @@
 
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { ExternalLink } from "lucide-react";
+import { DebateTranscript } from "@/components/debate-transcript";
 import { SlowPrint } from "@/components/slow-print";
+import { useResearchActivities, researchActivityLabel, type ResearchActivity } from "@/components/use-research-activities";
+import { RoundCountdown } from "@/components/round-countdown";
+import { DebateRetry, type DebateRetryProps } from "@/components/debate-retry";
+import { JudgeThoughtBubble } from "@/components/judge-thought-bubble";
 import { TheaterFrog, type TheaterFrogExpression } from "@/components/theater-frog";
-import { FrogSoundsContext } from "@/components/use-frog-sounds";
+import { judgeCueOptions, FrogSoundsContext } from "@/components/use-frog-sounds";
 import { buildFroglingsSourceChips } from "@/lib/source-chips";
+import { roundReadingHoldMs } from "@/lib/froglings-pacing";
 import {
   friendlyRound,
-  froglingsBubbleText,
   froglingsFrogName,
   froglingsTheaterCaption,
   froglingsVerdictCopy,
@@ -47,10 +52,6 @@ const ROUND_ORDER: DebateRound[] = ["opening", "cross_examination", "rebuttal", 
  *  ~70 chars/sec, since a bubble here disappears at the end of the round
  *  instead of staying on screen the way classic view's cards do. */
 const THEATER_TICK_MS = 20;
-
-/** How long both comments hold on screen, fully typed, before the next
- *  round begins — long enough to reread both without feeling rushed. */
-const ROUND_HOLD_MS = 2600;
 
 type TheaterPhase = "preshow" | "debating" | "judging" | "verdict" | "failed";
 
@@ -105,40 +106,27 @@ function frogExpression(
   return "idle";
 }
 
-export function PondTheater({ live }: { live: FroglingsLiveState }) {
+export function PondTheater({ live, ...retry }: { live: FroglingsLiveState } & DebateRetryProps) {
+  return <PondPerformance key={live.debateId} live={live} {...retry} />;
+}
+
+function PondPerformance({ live, ...retry }: { live: FroglingsLiveState } & DebateRetryProps) {
   const sounds = useContext(FrogSoundsContext);
   const [roundIndex, setRoundIndex] = useState(0);
   const [proDone, setProDone] = useState(false);
+  const [roundHoldEndsAt, setRoundHoldEndsAt] = useState<number | null>(null);
   const [typingSide, setTypingSide] = useState<"pro" | "con" | null>(null);
   const advanceTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
-    setRoundIndex(0);
-    setProDone(false);
-    setTypingSide(null);
-  }, [live.debateId]);
-
-  useEffect(() => {
     return () => {
       if (advanceTimerRef.current !== null) window.clearTimeout(advanceTimerRef.current);
+      advanceTimerRef.current = null;
     };
   }, []);
 
   const handleProComplete = useCallback(() => {
     setProDone(true);
-  }, []);
-
-  // No Frog finishing is the cue for the whole round: hold both
-  // comments on screen a beat, then clear them and move to the next
-  // round.
-  const handleConComplete = useCallback(() => {
-    if (advanceTimerRef.current !== null) window.clearTimeout(advanceTimerRef.current);
-    advanceTimerRef.current = window.setTimeout(() => {
-      advanceTimerRef.current = null;
-      setRoundIndex((index) => index + 1);
-      setProDone(false);
-      setTypingSide(null);
-    }, ROUND_HOLD_MS);
   }, []);
 
   const currentRound: DebateRound | null = ROUND_ORDER[roundIndex] ?? null;
@@ -148,6 +136,24 @@ export function PondTheater({ live }: { live: FroglingsLiveState }) {
   );
   const proTurn = roundTurns.find((turn) => turn.side === "pro") ?? null;
   const conTurn = roundTurns.find((turn) => turn.side === "con") ?? null;
+  const roundHoldMs = roundReadingHoldMs(
+    [proTurn, conTurn].flatMap((turn) => turn ? [froglingsTheaterCaption(turn)] : [])
+  );
+
+  // No Frog finishing is the cue for the whole round: hold both
+  // comments on screen a beat, then clear them and move to the next
+  // round.
+  const handleConComplete = useCallback(() => {
+    if (advanceTimerRef.current !== null) window.clearTimeout(advanceTimerRef.current);
+    setRoundHoldEndsAt(Date.now() + roundHoldMs);
+    advanceTimerRef.current = window.setTimeout(() => {
+      advanceTimerRef.current = null;
+      setRoundHoldEndsAt(null);
+      setRoundIndex((index) => index + 1);
+      setProDone(false);
+      setTypingSide(null);
+    }, roundHoldMs);
+  }, [roundHoldMs]);
 
   const allRoundsHeld = roundIndex >= ROUND_ORDER.length;
   const hasVerdict = Boolean(live.summary && live.scorecard);
@@ -155,20 +161,24 @@ export function PondTheater({ live }: { live: FroglingsLiveState }) {
   // The debate ended without ever producing a turn this round is
   // waiting on — don't sit forever showing a "thinking" bubble that
   // will never resolve.
-  const roundStuck = live.done && currentRound !== null && (!proTurn || (proDone && !conTurn));
+  const ended = live.done || debateBroke || live.status === "complete";
+  const roundStuck = ended && currentRound !== null && (!proTurn || (proDone && !conTurn));
+  const waitingForOpening = roundIndex === 0 && !proTurn && !live.done;
 
   const phase: TheaterPhase =
-    debateBroke && (live.turns.length === 0 || roundStuck)
+    (debateBroke && live.turns.length === 0) || roundStuck || (ended && allRoundsHeld && !hasVerdict)
       ? "failed"
       : allRoundsHeld && hasVerdict
         ? "verdict"
         : allRoundsHeld && hasAllDebateTurns(live.turns)
           ? "judging"
-          : live.turns.length > 0 || live.status === "debating"
+          : !waitingForOpening && (live.turns.length > 0 || live.status === "debating")
             ? "debating"
             : "preshow";
 
   const isPreshow = phase === "preshow";
+  const isResearching = isPreshow && (live.status === "researching" || live.status === "debating") && !live.done;
+  const researchActivities = useResearchActivities(isResearching);
   const proThinking = phase === "debating" && !proTurn;
   const conThinking = phase === "debating" && proDone && !conTurn;
   // Whichever frog currently "has the floor": Yes Frog until it wraps
@@ -190,16 +200,13 @@ export function PondTheater({ live }: { live: FroglingsLiveState }) {
   useEffect(() => {
     if (phase !== "verdict" || verdictCroakRef.current || !sounds.ready) return;
     verdictCroakRef.current = true;
-    sounds.play("judge");
+    sounds.play("judge", judgeCueOptions);
     const timer = window.setTimeout(() => sounds.stop("judge"), 480);
     return () => {
       window.clearTimeout(timer);
       sounds.stop("judge");
     };
   }, [phase, sounds]);
-  useEffect(() => {
-    verdictCroakRef.current = false;
-  }, [live.debateId]);
 
   const speakingSide = phase === "debating" ? typingSide : null;
   const tilt = live.scorecard ? verdictTilt(live.scorecard.recommendation) : "level";
@@ -212,7 +219,7 @@ export function PondTheater({ live }: { live: FroglingsLiveState }) {
         <div className="mt-0.5 text-base leading-snug text-ink">{literalQuestionText(live.subject)}</div>
       </section>
 
-      <section className="pt-stage" aria-label="Pond theater stage">
+      <section className={`pt-stage${phase === "debating" ? " pt-stage-debating" : ""}`} aria-label="Pond theater stage">
         <PondScenery />
 
         <div className="pt-plaque" aria-live="polite">
@@ -225,18 +232,22 @@ export function PondTheater({ live }: { live: FroglingsLiveState }) {
           <div className="pt-troupe">
             <PadGroup
               side="pro"
+              researching={isResearching}
+              researchActivity={researchActivities.pro}
               speaking={speakingSide === "pro"}
               thinking={proThinking || (isPreshow && !debateBroke)}
               expression={frogExpression("pro", phase, currentRound, activeSide)}
             />
             <PadGroup
               side="judge"
-              speaking={phase === "judging"}
-              thinking={false}
+              speaking={false}
+              thinking={phase === "judging"}
               expression={frogExpression("judge", phase, currentRound, activeSide)}
             />
             <PadGroup
               side="con"
+              researching={isResearching}
+              researchActivity={researchActivities.con}
               speaking={speakingSide === "con"}
               thinking={conThinking || (isPreshow && !debateBroke)}
               expression={frogExpression("con", phase, currentRound, activeSide)}
@@ -245,7 +256,7 @@ export function PondTheater({ live }: { live: FroglingsLiveState }) {
         )}
 
         {phase === "debating" ? (
-          <>
+          <div className="pt-dialogue">
             {proTurn ? (
               <TheaterBubble
                 key={proTurn.id}
@@ -270,19 +281,27 @@ export function PondTheater({ live }: { live: FroglingsLiveState }) {
                 <ThinkingBubble side="con" />
               )
             ) : null}
-          </>
+            {roundHoldEndsAt !== null ? (
+              <RoundCountdown
+                endsAt={roundHoldEndsAt}
+                isClosingRound={currentRound === "closing"}
+                className="pt-round-countdown"
+              />
+            ) : null}
+          </div>
         ) : null}
 
         {phase === "failed" ? (
           <div className="pt-failed" role="alert">
-            {live.errorMessage ?? "Uh oh — the frogs slipped off the lily pad. Please try again."}
+            <p>{live.errorMessage ?? "The frogs couldn't finish this step."}</p>
+            <DebateRetry {...retry} />
           </div>
         ) : null}
       </section>
 
       {phase === "verdict" && live.scorecard ? <VerdictCard live={live} tilt={tilt} /> : null}
 
-      {allRoundsHeld && allTurns.length > 0 ? <Transcript live={live} turns={allTurns} /> : null}
+      {allRoundsHeld && allTurns.length > 0 ? <DebateTranscript sources={live.sources} turns={allTurns} /> : null}
     </div>
   );
 }
@@ -293,29 +312,29 @@ export function PondTheater({ live }: { live: FroglingsLiveState }) {
 // on every render.
 // -------------------------------------------------------------------------
 
-function PondScenery() {
+export function PondScenery({ still = false }: { still?: boolean }) {
   const stars = useMemo(
     () =>
       Array.from({ length: 12 }, (_, index) => ({
         id: index,
-        left: 4 + Math.random() * 92,
-        top: 3 + Math.random() * 24,
-        delay: Math.random() * 4
+        left: still ? 4 + (index * 17) % 92 : 4 + Math.random() * 92,
+        top: still ? 3 + (index * 7) % 24 : 3 + Math.random() * 24,
+        delay: still ? 0 : Math.random() * 4
       })),
-    []
+    [still]
   );
   const fireflies = useMemo(
     () =>
       Array.from({ length: 8 }, (_, index) => ({
         id: index,
-        left: 6 + Math.random() * 88,
-        top: 32 + Math.random() * 44,
-        driftDelay: Math.random() * 6,
-        flickerDelay: Math.random() * 3,
-        driftDuration: 7 + Math.random() * 6,
-        flickerDuration: 2 + Math.random() * 2
+        left: still ? 6 + (index * 13) % 88 : 6 + Math.random() * 88,
+        top: still ? 32 + (index * 11) % 44 : 32 + Math.random() * 44,
+        driftDelay: still ? 0 : Math.random() * 6,
+        flickerDelay: still ? 0 : Math.random() * 3,
+        driftDuration: still ? 7 : 7 + Math.random() * 6,
+        flickerDuration: still ? 2 : 2 + Math.random() * 2
       })),
-    []
+    [still]
   );
 
   return (
@@ -394,7 +413,7 @@ function Reeds({ className }: { className: string }) {
 // Frogs on lily pads
 // -------------------------------------------------------------------------
 
-function LilyPad({ small = false }: { small?: boolean }) {
+export function LilyPad({ small = false }: { small?: boolean }) {
   return (
     <svg className={small ? "pt-lily pt-lily-small" : "pt-lily"} viewBox="0 0 180 44" aria-hidden="true">
       <ellipse cx="90" cy="22" rx="86" ry="19" fill="#3f8a5c" />
@@ -408,11 +427,15 @@ function PadGroup({
   side,
   speaking,
   thinking,
+  researching = false,
+  researchActivity = "search",
   expression
 }: {
   side: "pro" | "con" | "judge";
   speaking: boolean;
   thinking: boolean;
+  researching?: boolean;
+  researchActivity?: ResearchActivity;
   expression: TheaterFrogExpression;
 }) {
   const sounds = useContext(FrogSoundsContext);
@@ -447,7 +470,7 @@ function PadGroup({
     <div
       className={`pt-pad-group pt-pad-${side}${speaking ? " is-speaking-group" : ""}${
         thinking ? " is-thinking" : ""
-      }${posture}`}
+      }${researching ? " is-researching" : ""}${posture}`}
     >
       <button
         type="button"
@@ -455,13 +478,17 @@ function PadGroup({
         onClick={croak}
         aria-label={`${frogName} — tap for a croak`}
       >
-        <TheaterFrog mood={side} speaking={speaking} expression={expression} className="pt-frog" />
+        <TheaterFrog mood={side} speaking={speaking} researching={researching} researchActivity={researchActivity} expression={expression} className="pt-frog" />
         <div className="pt-reflection" aria-hidden="true">
           <TheaterFrog mood={side} speaking={false} expression={expression} className="pt-frog" />
         </div>
       </button>
       <LilyPad />
       <span className="pt-ripple" aria-hidden="true" />
+      {side === "judge" && thinking ? <JudgeThoughtBubble className="pt-judge-thought" /> : null}
+      {researching ? (
+        <span className="pt-research-label">{researchActivityLabel(researchActivity)}</span>
+      ) : null}
     </div>
   );
 }
@@ -497,6 +524,7 @@ function TheaterBubble({
     <div className={`pt-bubble pt-bubble-${side} hop-in`}>
       <div className="pt-bubble-who">{froglingsFrogName(side)}</div>
       <p className="pt-bubble-text">
+        <span className="pt-bubble-reserve" aria-hidden="true">{content}</span>
         <SlowPrint
           text={content}
           tickMs={THEATER_TICK_MS}
@@ -561,6 +589,7 @@ function PlaqueCopy({
   if (phase === "verdict") return <b>The verdict</b>;
   if (phase === "judging") return <>The judge frog is thinking…</>;
   if (phase === "failed") return <>Intermission — the frogs slipped</>;
+  if (phase === "preshow" && live.status === "debating") return <>Preparing the opening statements…</>;
   if (live.status === "researching") return <>The frogs are collecting facts…</>;
   return <>The lily pad stage is lighting up…</>;
 }
@@ -686,48 +715,5 @@ function VerdictCard({ live, tilt }: { live: FroglingsLiveState; tilt: VerdictTi
         </div>
       </div>
     </section>
-  );
-}
-
-// -------------------------------------------------------------------------
-// Transcript — the whole debate in plain cards, for re-reading after the
-// performance (and as the screen-reader-friendly record).
-// -------------------------------------------------------------------------
-
-function Transcript({ live, turns }: { live: FroglingsLiveState; turns: RoundTurn[] }) {
-  return (
-    <details className="rounded-2xl border border-mud/20 bg-panel/90 shadow-sm">
-      <summary className="cursor-pointer select-none px-5 py-3.5 text-sm font-black text-pond">
-        Read the whole debate
-      </summary>
-      <div className="space-y-4 px-5 pb-5">
-        {(["opening", "cross_examination", "rebuttal", "closing"] as const).map((round) => {
-          const roundTurns = turns.filter((turn) => turn.round === round);
-          if (roundTurns.length === 0) return null;
-          const meta = friendlyRound[round];
-          return (
-            <article key={round}>
-              <div className="text-sm font-black text-pond">{meta.title}</div>
-              <div className="mt-0.5 text-xs text-ink/65">{meta.blurb}</div>
-              <div className="mt-2 grid gap-3 md:grid-cols-2">
-                {roundTurns.map((turn) => (
-                  <div
-                    key={turn.id}
-                    className={`rounded-xl border px-4 py-3 ${
-                      turn.side === "pro" ? "border-leaf/30 bg-mint/50" : "border-berry/30 bg-lily/40"
-                    }`}
-                  >
-                    <div className="mb-1 text-xs font-black text-ink">
-                      {froglingsFrogName(turn.side === "con" ? "con" : "pro")}
-                    </div>
-                    <p className="text-sm leading-relaxed text-ink/85">{froglingsBubbleText(turn)}</p>
-                  </div>
-                ))}
-              </div>
-            </article>
-          );
-        })}
-      </div>
-    </details>
   );
 }

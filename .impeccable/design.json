@@ -1,0 +1,135 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-12T21:23:52.282788+00:00",
+  "title": "Design System: DebateFrog",
+  "extensions": {
+    "colorMeta": {
+      "pond": {
+        "role": "primary",
+        "displayName": "Pond green"
+      },
+      "berry": {
+        "role": "secondary",
+        "displayName": "NO frog pink"
+      },
+      "judge": {
+        "role": "tertiary",
+        "displayName": "Judge purple"
+      },
+      "panel": {
+        "role": "neutral",
+        "displayName": "Parchment"
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Welcome display",
+        "purpose": "Welcome headline; responsive sizes are documented in DESIGN.md."
+      }
+    },
+    "shadows": [
+      {
+        "name": "welcome-scene",
+        "value": "0 26px 50px -26px rgba(6,22,30,.75)",
+        "purpose": "Scene against the teal environment."
+      },
+      {
+        "name": "welcome-form",
+        "value": "0 15px 32px rgba(9,25,31,.22)",
+        "purpose": "Parchment against the dusk scene."
+      },
+      {
+        "name": "lily",
+        "value": "0 18px 38px rgba(13, 79, 69, 0.18)",
+        "purpose": "Existing Tailwind surface shadow."
+      },
+      {
+        "name": "pop",
+        "value": "0 10px 22px rgba(212, 95, 122, 0.25)",
+        "purpose": "Existing Tailwind pink shadow."
+      }
+    ],
+    "motion": [
+      {
+        "name": "welcome-control",
+        "value": "160ms ease",
+        "purpose": "Welcome button and suggestion color transitions."
+      },
+      {
+        "name": "welcome-scenery",
+        "value": "none",
+        "purpose": "Static scenery; existing reduced-motion rules also cover frog animations."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "welcome-stack",
+        "value": "760px"
+      },
+      {
+        "name": "welcome-compact",
+        "value": "420px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Start the debate",
+      "kind": "button",
+      "refersTo": "welcome-start",
+      "description": "Question submission with enabled, hover, focus, and disabled states.",
+      "html": "<button class=\"ds-start\">Start the debate <span aria-hidden=\"true\">\u2192</span></button>",
+      "css": ".ds-start{font-family:ui-rounded, \"Avenir Next\", Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;min-height:48px;padding:12px 16px;border:0;border-radius:9px;background:var(--pond,#0d4f45);color:var(--cream,#fff7dd);font-size:15px;font-weight:800;transition:background-color 160ms ease}.ds-start:hover:not(:disabled){background:#176956}.ds-start:focus-visible{outline:2px solid var(--pond,#0d4f45);outline-offset:3px}.ds-start:disabled{background:#d8dfd0;color:#4b5c50;cursor:not-allowed}"
+    },
+    {
+      "name": "Question field",
+      "kind": "input",
+      "refersTo": "question-field",
+      "description": "Visible label and vertically resizable question input.",
+      "html": "<label class=\"ds-label\" for=\"ds-question\">What should the frogs argue about?</label><textarea class=\"ds-field\" id=\"ds-question\" placeholder=\"Should schools have longer recess?\"></textarea>",
+      "css": ".ds-label{font-family:ui-rounded, \"Avenir Next\", Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;display:block;color:var(--pond,#0d4f45);font-size:22px;font-weight:900;line-height:1.25;letter-spacing:-.015em}.ds-field{font-family:ui-rounded, \"Avenir Next\", Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;display:block;box-sizing:border-box;width:100%;min-height:116px;resize:vertical;margin-top:18px;padding:13px;border:1px solid #aca99a;border-radius:9px;background:#fffef9;color:var(--ink,#182320);font-size:16px;line-height:1.5;caret-color:var(--pond,#0d4f45)}.ds-field::placeholder{color:#656b60}.ds-field:focus{border-color:var(--pond,#0d4f45);outline:2px solid var(--pond,#0d4f45);outline-offset:2px}"
+    },
+    {
+      "name": "Question suggestion",
+      "kind": "button",
+      "description": "Fills the input; pale green marks hover and selection.",
+      "html": "<button class=\"ds-suggestion\" aria-pressed=\"false\">Should homework be banned?<span aria-hidden=\"true\">\u2192</span></button>",
+      "css": ".ds-suggestion{font-family:ui-rounded, \"Avenir Next\", Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;min-height:44px;padding:9px 0;border:0;border-bottom:1px solid #dce0d3;background:transparent;color:var(--pond,#0d4f45);font-size:12px;font-weight:650;line-height:1.4;text-align:left;transition:color 160ms ease,background-color 160ms ease}.ds-suggestion:hover,.ds-suggestion[aria-pressed=\"true\"]{background:#edf3e5}.ds-suggestion:focus-visible{outline:2px solid var(--pond,#0d4f45);outline-offset:3px}.ds-suggestion:disabled{opacity:.6;cursor:wait}"
+    },
+    {
+      "name": "Parchment panel",
+      "kind": "card",
+      "refersTo": "question-panel",
+      "description": "Warm entry surface above the dusk scene.",
+      "html": "<section class=\"ds-panel\">Bring a question and watch the debate unfold.</section>",
+      "css": ".ds-panel{font-family:ui-rounded, \"Avenir Next\", Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;padding:25px;border-radius:16px;background:var(--panel,#fffdf2);color:var(--ink,#182320);box-shadow:0 15px 32px rgba(9,25,31,.22)}"
+    },
+    {
+      "name": "Stats navigation pill",
+      "kind": "nav",
+      "description": "Existing secondary header link; typography and states expanded from Tailwind.",
+      "html": "<a class=\"ds-nav\" href=\"/stats\">Pond stats</a>",
+      "css": ".ds-nav{font-family:ui-rounded, \"Avenir Next\", Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif;display:inline-flex;align-items:center;min-height:44px;box-sizing:border-box;padding:6px 12px;border-radius:9999px;background:rgba(255,255,255,.7);color:var(--pond,#0d4f45);font-size:12px;line-height:16px;font-weight:700;text-decoration:none;box-shadow:0 1px 2px 0 rgb(0 0 0 / .05);transition:background-color 150ms cubic-bezier(.4,0,.2,1)}.ds-nav:hover{background:white}.ds-nav:focus-visible{outline:3px solid #f3cf95;outline-offset:2px}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The existing pond theater",
+    "overview": "Question entry is the entrance to the existing pond theater. Dark teal surroundings, a dusk sky, familiar frogs, and a parchment form connect the welcome and debate views. The operating task is choosing a question and starting a debate, with plain language suitable for a 12-year-old.",
+    "keyCharacteristics": [
+      "Existing green YES frog, pink NO frog, and purple judge SVGs.",
+      "Rounded system typography, bold headings, and warm light surfaces.",
+      "A usable question form near the top on desktop and phones."
+    ],
+    "rules": [],
+    "dos": [
+      "Do reuse TheaterFrog, LilyPad, and PondScenery for continuity with the debate.",
+      "Do retain visible focus, labeled fields, and readable submission and error states.",
+      "Do keep welcome scenery static and preserve reduced-motion support."
+    ],
+    "donts": [
+      "Don't replace the established pond identity or font stack for this refinement.",
+      "Don't add generated raster assets when the existing SVG scenery and characters serve the surface.",
+      "Don't let decorative content push question entry below a long introduction."
+    ]
+  }
+}

@@ -1,4 +1,5 @@
 import type { SVGProps } from "react";
+import { FrogResearchKit } from "@/components/frog-research-kit";
 
 /**
  * FunFrog — animated SVG frog used by DebateFrog.
@@ -19,6 +20,8 @@ interface FunFrogProps extends SVGProps<SVGSVGElement> {
   mood?: FunFrogMood;
   /** When true, the mouth chatters open and closed. */
   speaking?: boolean;
+  researching?: boolean;
+  researchActivity?: "search" | "notes";
   /** When true, plays a one-shot hop animation. */
   hop?: boolean;
   /** When true, plays the idle bob loop. Defaults to true. */
@@ -36,6 +39,8 @@ const palette: Record<FunFrogMood, { body: string; belly: string; cheek: string;
 export function FunFrog({
   mood = "idle",
   speaking = false,
+  researching = false,
+  researchActivity = mood === "con" ? "notes" : "search",
   hop = false,
   bob = true,
   size = 72,
@@ -129,6 +134,11 @@ export function FunFrog({
           <path d="M40 48 q10 10 20 0" stroke={c.mouth} strokeWidth="2.5" strokeLinecap="round" fill="none" />
         )}
       </g>
+      {researching ? (
+        <g transform="translate(-10 -4)">
+          <FrogResearchKit activity={researchActivity} handColor={c.body} />
+        </g>
+      ) : null}
     </svg>
   );
 }
