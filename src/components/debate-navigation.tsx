@@ -77,7 +77,7 @@ export function LeaveDebateDialog({ destination, hasDebate, saved, onCancel, onC
       <h2 id="leave-title" className="text-xl font-black text-pond">{destination === "stats" ? "Visit Pond stats?" : destination === "history" ? "Open a different debate?" : "Start a new question?"}</h2>
       <p id="leave-description" className="mt-3 text-sm leading-relaxed">
         {hasDebate ? saved
-          ? "You’ll leave this debate. Its saved progress is in My debates, so you can open it again."
+          ? "You’ll leave this debate. Its saved progress is in My debates, so you can open it again later."
           : "This browser couldn’t save this debate to My debates. If you leave, you won’t be able to find it there. Stay here to keep reading."
           : "The question you’ve typed hasn’t been started. If you leave, you’ll lose that draft."}
       </p>
