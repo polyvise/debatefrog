@@ -72,13 +72,13 @@ function StatsContent({ stats }: { stats: PublicStats }) {
     <div className="space-y-6">
       <section aria-label="Pond activity totals" className="stats-totals grid grid-cols-2 overflow-hidden rounded-2xl bg-panel p-2 shadow-sm sm:grid-cols-4">
         <Metric label="Total debates" value={formatNumber(stats.totalDebates)} />
-        <Metric label="Completed" value={`${Math.round(stats.completionRate * 100)}%`} detail={`${formatNumber(stats.completedDebates)} debates`} />
+        <Metric label="Completed" value={`${Math.round(stats.completionRate * 100)}%`} detail={`${formatNumber(stats.completedDebates)} ${stats.completedDebates === 1 ? "debate" : "debates"}`} />
         <Metric label="Last 7 days" value={formatNumber(stats.recent7Days)} detail={`${formatNumber(stats.recent30Days)} in 30 days`} />
         <Metric label="Feedback notes" value={formatNumber(stats.feedbackCount)} />
       </section>
 
       <section className="grid gap-6 lg:grid-cols-[1.4fr_1fr]">
-        <Panel title="Debates over the last 14 days" subtitle="New debates per day">
+        <Panel title="Debates over the last 14 days" subtitle="New debates per day (UTC)">
           <div className="flex h-52 items-end gap-1.5 pt-5 sm:gap-3">
             {stats.dailyActivity.map((day, index) => (
               <div key={day.date} className="flex min-w-0 flex-1 flex-col items-center justify-end gap-2">
@@ -96,7 +96,7 @@ function StatsContent({ stats }: { stats: PublicStats }) {
           </div>
         </Panel>
 
-        <Panel title="Debate outcomes" subtitle={`${stats.activeDebates} currently active`}>
+        <Panel title="Debate outcomes" subtitle={`${stats.unfinishedDebates} without a final result`}>
           <div className="space-y-3">
             {stats.statusBreakdown.map((item) => (
               <BarRow
@@ -108,6 +108,7 @@ function StatsContent({ stats }: { stats: PublicStats }) {
               />
             ))}
           </div>
+          <p className="mt-4 text-xs leading-5 text-mud">Each debate is counted once by its latest saved result. An unfinished debate may have stopped.</p>
         </Panel>
       </section>
 
@@ -124,7 +125,7 @@ function StatsContent({ stats }: { stats: PublicStats }) {
           )}
         </Panel>
 
-        <Panel title="What the frogs produced" subtitle="Aggregate output from completed and partial runs">
+        <Panel title="What the frogs produced" subtitle="From saved debate results">
           <div className="grid grid-cols-2 gap-3">
             <SmallMetric label="Evidence sources" value={stats.totalSources} />
             <SmallMetric label="Debate turns" value={stats.totalTurns} />
@@ -140,8 +141,9 @@ function StatsContent({ stats }: { stats: PublicStats }) {
 
       <p className="pb-4 text-center text-xs text-[#cbd9d2]">
         {stats.lastUpdatedAt
-          ? `Latest activity ${new Date(stats.lastUpdatedAt).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" })}`
+          ? `Latest activity ${new Date(stats.lastUpdatedAt).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short", timeZone: "UTC" })} UTC`
           : "No debate activity recorded yet"}
+        <span className="mt-1 block">Day counts use UTC and include today.</span>
       </p>
     </div>
   );

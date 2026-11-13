@@ -13,7 +13,7 @@ export interface PublicStats {
   totalDebates: number;
   completedDebates: number;
   completionRate: number;
-  activeDebates: number;
+  unfinishedDebates: number;
   recent7Days: number;
   recent30Days: number;
   totalSources: number;
@@ -60,7 +60,7 @@ export function summarizePublicStats(
   for (const debate of debates) {
     statusCounts.set(debate.status, (statusCounts.get(debate.status) ?? 0) + 1);
     const createdAt = parseDate(debate.createdAt);
-    if (createdAt) {
+    if (createdAt && createdAt <= now) {
       const day = createdAt.toISOString().slice(0, 10);
       dayCounts.set(day, (dayCounts.get(day) ?? 0) + 1);
     }
@@ -89,7 +89,9 @@ export function summarizePublicStats(
   }
 
   const completedDebates = statusCounts.get("complete") ?? 0;
-  const activeDebates = debateStatuses
+  // Stored nonterminal states can outlive their worker. They establish that
+  // a result is unfinished, not that a debate is still actively running.
+  const unfinishedDebates = debateStatuses
     .filter((status) => !["complete", "failed", "partial"].includes(status))
     .reduce((sum, status) => sum + (statusCounts.get(status) ?? 0), 0);
 
@@ -97,9 +99,9 @@ export function summarizePublicStats(
     totalDebates: debates.length,
     completedDebates,
     completionRate: debates.length ? completedDebates / debates.length : 0,
-    activeDebates,
-    recent7Days: debates.filter((debate) => isOnOrAfter(debate.createdAt, sevenDaysAgo)).length,
-    recent30Days: debates.filter((debate) => isOnOrAfter(debate.createdAt, thirtyDaysAgo)).length,
+    unfinishedDebates,
+    recent7Days: debates.filter((debate) => isWithinPeriod(debate.createdAt, sevenDaysAgo, now)).length,
+    recent30Days: debates.filter((debate) => isWithinPeriod(debate.createdAt, thirtyDaysAgo, now)).length,
     totalSources,
     totalTurns,
     totalFollowups: debates.reduce((sum, debate) => sum + debate.followups.length, 0),
@@ -136,7 +138,7 @@ function parseDate(value: string): Date | null {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
-function isOnOrAfter(value: string, minimum: Date): boolean {
+function isWithinPeriod(value: string, minimum: Date, maximum: Date): boolean {
   const date = parseDate(value);
-  return Boolean(date && date >= minimum);
+  return Boolean(date && date >= minimum && date <= maximum);
 }
