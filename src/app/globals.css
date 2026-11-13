@@ -1316,8 +1316,16 @@ body.theater-ambient {
 }
 
 /* Question entry shares the theater's pond, characters, and parchment. */
-body:has(.welcome-workspace) {
+body:has(.welcome-workspace),
+body:has(.pond-stats-page) {
   background: linear-gradient(165deg, #10262e 0%, #14333c 44%, #1b4450 100%);
+}
+.pond-stats-page ::selection { background: var(--pond); color: var(--cream); }
+.stats-totals > div:nth-child(even) { border-left: 1px solid rgba(13, 79, 69, 0.15); }
+.stats-totals > div:nth-child(n + 3) { border-top: 1px solid rgba(13, 79, 69, 0.15); }
+@media (min-width: 640px) {
+  .stats-totals > div + div { border-left: 1px solid rgba(13, 79, 69, 0.15); }
+  .stats-totals > div:nth-child(n + 3) { border-top: 0; }
 }
 .welcome-scene {
   position: relative;
