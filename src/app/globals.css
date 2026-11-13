@@ -56,6 +56,13 @@ select:focus-visible {
   outline-offset: 2px;
 }
 
+.workspace-navigation :is(button, a):focus-visible { outline-color: var(--sun); }
+.debate-history button:focus-visible,
+.debate-leave-dialog button:focus-visible { outline: 2px solid var(--pond); outline-offset: 2px; }
+.debate-history ul { scrollbar-color: var(--pond) var(--panel); scrollbar-width: thin; }
+.debate-history ::selection,
+.debate-leave-dialog ::selection { color: var(--cream); background: var(--pond); }
+
 /* Subtle hop animation for bubbles entering the stage */
 @keyframes hop-in {
   0% {

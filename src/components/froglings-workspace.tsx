@@ -36,10 +36,12 @@ import {
   useState
 } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import type { Route } from "next";
 import {
   AlertTriangle,
   BarChart3,
+  BookOpen,
   CheckCircle2,
   ChevronDown,
   CircleHelp,
@@ -65,6 +67,8 @@ import { judgeCueOptions, FrogSoundsContext, useFrogSounds } from "@/components/
 import { FroglingsIntro } from "@/components/froglings-intro";
 import { FroglingsHero } from "@/components/froglings-hero";
 import { PondTheater } from "@/components/pond-theater";
+import { DebateHistory, LeaveDebateDialog } from "@/components/debate-navigation";
+import { readDebateHistory, rememberDebate, type DebateHistoryEntry } from "@/lib/debate-history";
 import { roundReadingHoldMs } from "@/lib/froglings-pacing";
 import { watchDebate } from "@/lib/watch-debate";
 import type { RecoverableDebateRecord } from "@/lib/debate-recovery";
@@ -455,6 +459,7 @@ function formatDuration(durationMs: number): string {
 // -------------------------------------------------------------------------
 
 export function FroglingsWorkspace() {
+  const router = useRouter();
   const [subject, setSubject] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -472,6 +477,13 @@ export function FroglingsWorkspace() {
   const [readingLevel, setReadingLevel] = useState<ReadingLevel>(DEFAULT_READING_LEVEL);
   const [userPreferences, setUserPreferences] = useState<UserPreferences>(defaultUserPreferences);
   const stopWatchingRef = useRef<(() => void) | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [history, setHistory] = useState<DebateHistoryEntry[]>([]);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [loadingHistoryId, setLoadingHistoryId] = useState<string | null>(null);
+  const [historySaved, setHistorySaved] = useState(false);
+  const [destination, setDestination] = useState<string | null>(null);
+  const historyRequestRef = useRef<AbortController | null>(null);
   const sounds = useFrogSounds();
   useJudgeEntranceCroak(live?.debateId, sounds);
   const soundControls = useMemo(
@@ -504,7 +516,14 @@ export function FroglingsWorkspace() {
   useEffect(() => {
     setUserPreferences(readStoredUserPreferences());
     setReadingLevel(readReadingLevel());
+    setHistory(readDebateHistory());
   }, []);
+
+  useEffect(() => {
+    if (!live) return;
+    setHistorySaved(rememberDebate({ id: live.debateId, subject: live.subject, status: live.status, createdAt: new Date().toISOString() }));
+    setHistory(readDebateHistory());
+  }, [live?.debateId, live?.subject, live?.status]);
 
   // Theater is the only debate view, including for returning visitors.
   useEffect(() => {
@@ -552,6 +571,7 @@ export function FroglingsWorkspace() {
   useEffect(() => {
     return () => {
       stopWatchingRef.current?.();
+      historyRequestRef.current?.abort();
       retryRequestRef.current?.abort();
       retryRequestRef.current = null;
     };
@@ -559,7 +579,7 @@ export function FroglingsWorkspace() {
 
   async function runDebate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (subject.trim().length < 4 || isSubmitting) return;
+    if (subject.trim().length < 4 || isSubmitting || loadingHistoryId) return;
     setIsSubmitting(true);
     setSubmitError(null);
     setDebate(null);
@@ -596,6 +616,7 @@ export function FroglingsWorkspace() {
       }
 
       const seed = payload.debate;
+      rememberDebate(seed);
       dispatch({ type: "init", debateId: seed.id, subject: seed.subject, recovery: seed.recovery });
 
       stopWatchingRef.current = watchDebate(
@@ -667,15 +688,90 @@ export function FroglingsWorkspace() {
     stopWatchingRef.current = null;
     setDebate(null);
     dispatch({ type: "reset" });
+    setSubject("");
     setSubmitError(null);
+  }
+
+  function requestNavigation(next: string) {
+    if (isSubmitting || loadingHistoryId) return;
+    if (next === live?.debateId) {
+      setHistoryOpen(false);
+      return;
+    }
+    if (live || subject.trim()) setDestination(next);
+    else void navigate(next);
+  }
+
+  function closeHistory() {
+    historyRequestRef.current?.abort();
+    historyRequestRef.current = null;
+    setLoadingHistoryId(null);
+    setHistoryOpen(false);
+    requestAnimationFrame(() => document.querySelector<HTMLButtonElement>('[aria-controls="debate-history"]')?.focus());
+  }
+
+  async function navigate(next: string) {
+    setDestination(null);
+    if (next === "stats") {
+      router.push("/stats");
+      return;
+    }
+    if (next === "new") {
+      startOver();
+      setHistoryOpen(false);
+      requestAnimationFrame(() => document.getElementById("subject")?.focus());
+      return;
+    }
+    const controller = new AbortController();
+    historyRequestRef.current = controller;
+    setLoadingHistoryId(next);
+    setHistoryError(null);
+    const timeout = window.setTimeout(() => controller.abort(), 15_000);
+    try {
+      const response = await fetch(`/api/debates/${encodeURIComponent(next)}`, { cache: "no-store", signal: controller.signal });
+      const payload = await response.json() as { debate?: RecoverableDebateRecord };
+      if (!response.ok || !payload.debate || payload.debate.id !== next) {
+        throw new Error(response.status === 404 ? "We couldn’t find that debate. It may no longer be saved." : "That debate didn’t open. Please try again.");
+      }
+      if (historyRequestRef.current !== controller) return;
+      // Keep the current debate intact until the selected record is loaded.
+      startOver();
+      const record = payload.debate;
+      rememberDebate(record);
+      dispatch({ type: "init", debateId: record.id, subject: record.subject, recovery: record.recovery });
+      dispatch({ type: "hydrate", debate: record });
+      const active = !["complete", "failed", "partial"].includes(record.status);
+      // Existing reducer merges replayed turns by ID, preserving saved progress
+      // even when the original worker is no longer connected.
+      if (active) {
+        stopWatchingRef.current = watchDebate(record.id,
+          (event) => dispatch({ type: "event", event }),
+          (debate) => dispatch({ type: "hydrate", debate }), record.recovery?.attempt ?? 0);
+      }
+      setHistoryOpen(false);
+      requestAnimationFrame(() => document.getElementById("debate-home")?.focus());
+    } catch (error) {
+      if (historyRequestRef.current === controller) setHistoryError(
+        error instanceof Error && error.name !== "AbortError" ? error.message : "That debate took too long to open. Please try again.");
+    } finally {
+      window.clearTimeout(timeout);
+      if (historyRequestRef.current === controller) {
+        historyRequestRef.current = null;
+        setLoadingHistoryId(null);
+      }
+    }
   }
 
   return (
     <main className={`mx-auto w-full max-w-[960px] px-4 py-6 sm:py-10${!live ? " welcome-workspace" : ""}`}>
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <Link
-          href={"/" as Route}
-          className="flex items-center gap-3 text-cream"
+      <header className="workspace-navigation flex flex-wrap items-center justify-between gap-3">
+        <button
+          id="debate-home"
+          type="button"
+          onClick={() => requestNavigation("new")}
+          disabled={isSubmitting || Boolean(loadingHistoryId)}
+          aria-label="DebateFrog — new question"
+          className="workspace-home flex min-h-11 items-center gap-3 rounded-lg text-cream disabled:opacity-60"
         >
           <FunFrog mood="idle" size={42} bob={false} />
           <span className="text-lg font-black tracking-tight">DebateFrog</span>
@@ -684,15 +780,24 @@ export function FroglingsWorkspace() {
               Preview
             </span>
           ) : null}
-        </Link>
+        </button>
         <div className="flex flex-wrap items-center gap-3">
-          <Link
-            href={"/stats" as Route}
-            className="inline-flex items-center gap-1.5 rounded-full bg-white/70 px-3 py-1.5 text-xs font-bold text-pond shadow-sm transition hover:bg-white"
+          <button type="button" aria-expanded={historyOpen} aria-controls="debate-history"
+            disabled={isSubmitting || Boolean(loadingHistoryId)}
+            onClick={() => { setHistory(readDebateHistory()); setHistoryOpen(!historyOpen); setHistoryError(null); }}
+            className="inline-flex min-h-11 items-center gap-1.5 rounded-full bg-white/90 px-3 py-1.5 text-xs font-bold text-pond shadow-sm transition hover:bg-white disabled:opacity-60">
+            <BookOpen className="h-3.5 w-3.5" aria-hidden="true" />
+            My debates
+          </button>
+          <button
+            type="button"
+            onClick={() => requestNavigation("stats")}
+            disabled={isSubmitting || Boolean(loadingHistoryId)}
+            className="inline-flex min-h-11 items-center gap-1.5 rounded-full bg-white/70 px-3 py-1.5 text-xs font-bold text-pond shadow-sm transition hover:bg-white disabled:opacity-60"
           >
             <BarChart3 className="h-3.5 w-3.5" />
             Pond stats
-          </Link>
+          </button>
           <button
             type="button"
             onClick={sounds.toggleMute}
@@ -706,8 +811,9 @@ export function FroglingsWorkspace() {
           {live ? (
             <button
               type="button"
-              onClick={startOver}
-              className="inline-flex items-center gap-1.5 rounded-full bg-white/70 px-3 py-1.5 text-xs font-bold text-pond shadow-sm transition hover:bg-white"
+              onClick={() => requestNavigation("new")}
+              disabled={Boolean(loadingHistoryId)}
+              className="inline-flex min-h-11 items-center gap-1.5 rounded-full bg-white/70 px-3 py-1.5 text-xs font-bold text-pond shadow-sm transition hover:bg-white disabled:opacity-60"
             >
               <RotateCcw className="h-3.5 w-3.5" />
               New question
@@ -716,13 +822,19 @@ export function FroglingsWorkspace() {
         </div>
       </header>
 
+      {historyOpen ? <DebateHistory entries={history} currentId={live?.debateId} loadingId={loadingHistoryId}
+        error={historyError} onOpen={requestNavigation} onClose={closeHistory} /> : null}
+      {live && !historySaved ? <p role="status" className="mt-4 text-sm text-cream">This browser couldn’t save a link in My debates. Keep this page open to keep reading.</p> : null}
+      {destination ? <LeaveDebateDialog destination={destination === "stats" ? "stats" : destination === "new" ? "new" : "history"}
+        hasDebate={Boolean(live)} saved={historySaved} onCancel={() => setDestination(null)} onConfirm={() => void navigate(destination)} /> : null}
+
       {!live ? (
         <FroglingsHero
           subject={subject}
           onSubjectChange={setSubject}
           readingLevel={readingLevel}
           onReadingLevelChange={(value) => { setReadingLevel(value); saveReadingLevel(value); }}
-          isSubmitting={isSubmitting}
+          isSubmitting={isSubmitting || Boolean(loadingHistoryId)}
           error={submitError}
           onSubmit={runDebate}
         />
