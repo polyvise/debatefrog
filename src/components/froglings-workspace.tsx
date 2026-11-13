@@ -22,7 +22,6 @@ import { DEFAULT_READING_LEVEL, readReadingLevel, saveReadingLevel, type Reading
 const INTRO_SEEN_KEY = "froglings:intro-seen";
 const MODEL_SETTINGS_KEY = "froglings:model-settings:v4";
 const USER_PREFERENCES_KEY = "froglings:user-preferences";
-const VIEW_MODE_KEY = "froglings:view-mode";
 const isPreviewDeploy = process.env.NEXT_PUBLIC_DEPLOY_CHANNEL === "preview";
 const showApiDebugDetails = process.env.NODE_ENV !== "production";
 
@@ -69,7 +68,6 @@ import { PondTheater } from "@/components/pond-theater";
 import { roundReadingHoldMs } from "@/lib/froglings-pacing";
 import { watchDebate } from "@/lib/watch-debate";
 import type { RecoverableDebateRecord } from "@/lib/debate-recovery";
-import { DebateRetry, type DebateRetryProps } from "@/components/debate-retry";
 import { buildFroglingsSourceChips, type FroglingsSourceChip } from "@/lib/source-chips";
 import {
   friendlyRound,
@@ -149,7 +147,6 @@ type UserPreferences = {
  * "classic" is the original round-card view (also the reduced-motion
  * and screen-reader friendly fallback). Persisted per browser.
  */
-type ViewMode = "theater" | "classic";
 const defaultUserPreferences: UserPreferences = {
   openingSplash: true,
   liveApisInDev: false
@@ -474,8 +471,6 @@ export function FroglingsWorkspace() {
   const [modelOptionsError, setModelOptionsError] = useState<string | null>(null);
   const [readingLevel, setReadingLevel] = useState<ReadingLevel>(DEFAULT_READING_LEVEL);
   const [userPreferences, setUserPreferences] = useState<UserPreferences>(defaultUserPreferences);
-  // Default to the theater; a stored choice (or reduced-motion) wins.
-  const [viewMode, setViewMode] = useState<ViewMode>("theater");
   const stopWatchingRef = useRef<(() => void) | null>(null);
   const sounds = useFrogSounds();
   useJudgeEntranceCroak(live?.debateId, sounds);
@@ -511,46 +506,11 @@ export function FroglingsWorkspace() {
     setReadingLevel(readReadingLevel());
   }, []);
 
+  // Theater is the only debate view, including for returning visitors.
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      const stored = window.localStorage.getItem(VIEW_MODE_KEY);
-      if (stored === "classic" || stored === "theater") {
-        setViewMode(stored);
-        return;
-      }
-    } catch {
-      // localStorage unavailable; keep the default.
-    }
-    // No stored choice: reduced-motion users get the calmer classic view.
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      setViewMode("classic");
-    }
+    document.body.classList.add("theater-ambient");
+    return () => document.body.classList.remove("theater-ambient");
   }, []);
-
-  // Question entry and the theater share the same pond surroundings.
-  const theaterAmbient = live === null || viewMode === "theater";
-  useEffect(() => {
-    if (typeof document === "undefined") return;
-    document.body.classList.toggle("theater-ambient", theaterAmbient);
-    return () => {
-      document.body.classList.remove("theater-ambient");
-    };
-  }, [theaterAmbient]);
-
-  const toggleViewMode = () => {
-    setViewMode((current) => {
-      const next: ViewMode = current === "theater" ? "classic" : "theater";
-      try {
-        if (typeof window !== "undefined") {
-          window.localStorage.setItem(VIEW_MODE_KEY, next);
-        }
-      } catch {
-        // ignore storage failures
-      }
-      return next;
-    });
-  };
 
   useEffect(() => {
     let cancelled = false;
@@ -715,7 +675,7 @@ export function FroglingsWorkspace() {
       <header className="flex flex-wrap items-center justify-between gap-3">
         <Link
           href={"/" as Route}
-          className={`flex items-center gap-3 ${theaterAmbient ? "text-cream" : "text-pond"}`}
+          className="flex items-center gap-3 text-cream"
         >
           <FunFrog mood="idle" size={42} bob={false} />
           <span className="text-lg font-black tracking-tight">DebateFrog</span>
@@ -726,24 +686,6 @@ export function FroglingsWorkspace() {
           ) : null}
         </Link>
         <div className="flex flex-wrap items-center gap-3">
-          <button
-            type="button"
-            onClick={toggleViewMode}
-            aria-pressed={viewMode === "theater"}
-            title={
-              viewMode === "theater"
-                ? "Switch to the classic card view"
-                : "Switch to the pond theater view"
-            }
-            className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-bold shadow-sm transition ${
-              viewMode === "theater"
-                ? `bg-pond text-cream hover:bg-leafDark${theaterAmbient ? " ring-1 ring-cream/30" : ""}`
-                : "bg-white/70 text-pond hover:bg-white"
-            }`}
-          >
-            <Sparkles className="h-3.5 w-3.5" />
-            Theater
-          </button>
           <Link
             href={"/stats" as Route}
             className="inline-flex items-center gap-1.5 rounded-full bg-white/70 px-3 py-1.5 text-xs font-bold text-pond shadow-sm transition hover:bg-white"
@@ -786,11 +728,7 @@ export function FroglingsWorkspace() {
         />
       ) : (
         <FrogSoundsContext.Provider value={soundControls}>
-          {viewMode === "theater" ? (
-            <PondTheater live={live} onRetry={live.recovery?.available ? retryFailedStep : undefined} retrying={isRetrying} retryError={retryError} />
-          ) : (
-            <FroglingsLive live={live} preferences={userPreferences} onRetry={live.recovery?.available ? retryFailedStep : undefined} retrying={isRetrying} retryError={retryError} />
-          )}
+          <PondTheater live={live} onRetry={live.recovery?.available ? retryFailedStep : undefined} retrying={isRetrying} retryError={retryError} />
         </FrogSoundsContext.Provider>
       )}
 
@@ -1363,57 +1301,6 @@ function storeUserPreferences(preferences: UserPreferences) {
 // -------------------------------------------------------------------------
 // Live view — kid-friendly stage banner, named frogs, round bubbles, verdict
 // -------------------------------------------------------------------------
-
-function FroglingsLive({
-  live,
-  preferences,
-  ...retry
-}: {
-  live: FroglingsLiveState;
-  preferences: UserPreferences;
-} & DebateRetryProps) {
-  const staged = useStagedFroglingsTurns(live);
-  const countdownStarted = isStartCountdownStarted(live);
-  const showStartSequence = useStartSequenceVisibility(
-    live,
-    staged,
-    preferences.openingSplash,
-    countdownStarted
-  );
-  const slowWait = useSlowFrogWait(live, staged, showStartSequence);
-
-  return (
-    <div className="mt-6 space-y-5">
-      <QuestionBanner live={live} staged={staged} showStartSequence={showStartSequence} slowWait={slowWait} />
-      {live.status === "failed" || live.status === "partial" ? (
-        <section className="rounded-2xl bg-panel p-5 text-ink" role="alert">
-          <p>{live.errorMessage ?? "The frogs couldn't finish this step."}</p>
-          <DebateRetry {...retry} />
-        </section>
-      ) : null}
-      {(live.backupReasons ?? []).length > 0 && !showStartSequence ? <BackupAnswersNotice /> : null}
-      {showStartSequence ? (
-        <DebateStartSequence live={live} countdownStarted={countdownStarted} />
-      ) : null}
-      {live.teams && !preferences.openingSplash ? (
-        <FrogIntros teams={live.teams} researching={isPreparingOpening(live)} />
-      ) : null}
-      {!showStartSequence ? (
-        <>
-          <Rounds live={live} visibleTurns={staged.visibleTurns} onTurnComplete={staged.showNextTurn} />
-          {staged.roundHoldEndsAt !== null ? (
-            <RoundCountdown
-              endsAt={staged.roundHoldEndsAt}
-              isClosingRound={staged.visibleTurns.at(-1)?.round === "closing"}
-              className="text-center text-sm font-semibold text-pond"
-            />
-          ) : null}
-          {live.status !== "failed" && live.status !== "partial" ? <Verdict live={live} readyForVerdict={staged.readyForVerdict} /> : null}
-        </>
-      ) : null}
-    </div>
-  );
-}
 
 type SlowFrogWaitState = {
   visible: boolean;

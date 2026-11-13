@@ -16,4 +16,4 @@ FORM: Refine the existing introduction/form layout within the established theate
 
 FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance
 
-Scope: landing UI and its ambient background only. Preserve debate execution, suggestions, controls, intro, feedback, sound attribution, and the live/classic views. Deploy to preview.debatefrog.com only.
+Scope: landing UI and its ambient background only. Preserve debate execution, suggestions, controls, intro, feedback, sound attribution, and the theater view. Deploy to preview.debatefrog.com only.

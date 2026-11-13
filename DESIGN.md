@@ -147,3 +147,5 @@ The welcome scene and parchment panel have softly rounded corners. Controls use 
 - Don't let decorative content push question entry below a long introduction.
 
 The question form includes a native Reading level selector: ages 9–11 by default, or ages 12–14. Keep it compact, labeled, keyboard-accessible, and disabled while starting a debate.
+
+Theater is the only debate view. The header has no view-mode toggle, and legacy classic-view preferences are ignored. Reduced-motion support stays within the theater.
