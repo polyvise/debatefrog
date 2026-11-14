@@ -4,7 +4,7 @@ import type { DebateLiveEvent } from "@polyvise/core/debate/types";
 export const dynamic = "force-dynamic";
 
 type RouteContext = {
-  params: Promise<{ id: string }> | { id: string };
+  params: Promise<{ id: string }>;
 };
 
 export async function GET(_request: Request, context: RouteContext) {

@@ -58,5 +58,15 @@ jobs:
       - name: Setup gcloud
         uses: google-github-actions/setup-gcloud@v3
 
+      - name: Build and push preview image
+        env:
+          NPM_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gcloud auth configure-docker us-central1-docker.pkg.dev --quiet
+          IMAGE="us-central1-docker.pkg.dev/$GCP_PROJECT_ID/polyvise/debatefrog-preview-web:$(git rev-parse --short HEAD)"
+          docker build --secret id=npm_token,env=NPM_TOKEN --build-arg NEXT_PUBLIC_DEPLOY_CHANNEL=preview -t "$IMAGE" .
+          docker push "$IMAGE"
+          echo "GCP_DEBATEFROG_PREBUILT_IMAGE=$IMAGE" >> "$GITHUB_ENV"
+
       - name: Deploy Debatefrog preview to Cloud Run
         run: ./scripts/gcp-deploy.sh preview

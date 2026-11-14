@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ArrowLeft, Database } from "lucide-react";
+import { ArrowLeft, Database, Loader2 } from "lucide-react";
+import { Suspense } from "react";
 import { FunFrog } from "@/components/fun-frog";
 import { getPublicStats, type PublicStats } from "@/server/stats";
 
@@ -12,17 +13,7 @@ export const metadata: Metadata = {
   description: "Aggregate activity and model usage from the DebateFrog pond."
 };
 
-export default async function StatsPage() {
-  let stats: PublicStats | null = null;
-  let unavailable = false;
-
-  try {
-    stats = await getPublicStats();
-  } catch (error) {
-    unavailable = true;
-    console.error("Unable to load DebateFrog stats", error);
-  }
-
+export default function StatsPage() {
   return (
     <main className="pond-stats-page min-h-screen px-4 py-6 text-ink sm:py-10">
       <div className="mx-auto max-w-[928px]">
@@ -50,71 +41,96 @@ export default async function StatsPage() {
           </p>
         </section>
 
-        {unavailable || !stats ? (
-          <section className="rounded-2xl bg-panel p-8 text-center shadow-sm" role="status">
-            <p className="font-black text-pond">The pond counter is taking a little nap.</p>
-            <p className="mt-2 text-sm text-mud">Please hop back soon.</p>
-          </section>
-        ) : (
-          <StatsContent stats={stats} />
-        )}
+        <Suspense fallback={<StatsContent stats={null} />}>
+          <LoadedStats />
+        </Suspense>
       </div>
     </main>
   );
 }
 
-function StatsContent({ stats }: { stats: PublicStats }) {
-  const maxDaily = Math.max(1, ...stats.dailyActivity.map((day) => day.count));
-  const maxStatus = Math.max(1, ...stats.statusBreakdown.map((item) => item.count));
-  const maxModel = Math.max(1, ...stats.modelUsage.map((item) => item.debates));
+async function LoadedStats() {
+  try {
+    return <StatsContent stats={await getPublicStats()} />;
+  } catch (error) {
+    console.error("Unable to load DebateFrog stats", error);
+    return (
+      <section className="rounded-2xl bg-panel p-8 text-center shadow-sm" role="status">
+        <p className="font-black text-pond">The pond counter is taking a little nap.</p>
+        <p className="mt-2 text-sm text-mud">Please hop back soon.</p>
+      </section>
+    );
+  }
+}
+
+function StatsContent({ stats }: { stats: PublicStats | null }) {
+  const maxDaily = Math.max(1, ...(stats?.dailyActivity.map((day) => day.count) ?? []));
+  const maxStatus = Math.max(1, ...(stats?.statusBreakdown.map((item) => item.count) ?? []));
+  const maxModel = Math.max(1, ...(stats?.modelUsage.map((item) => item.debates) ?? []));
 
   return (
-    <div className="space-y-6">
+    <div id={stats ? "pond-stats-results" : undefined} className="space-y-6">
       <section aria-label="Pond activity totals" className="stats-totals grid grid-cols-2 overflow-hidden rounded-2xl bg-panel p-2 shadow-sm sm:grid-cols-4">
-        <Metric label="Total debates" value={formatNumber(stats.totalDebates)} />
-        <Metric label="Completed" value={`${Math.round(stats.completionRate * 100)}%`} detail={`${formatNumber(stats.completedDebates)} ${stats.completedDebates === 1 ? "debate" : "debates"}`} />
-        <Metric label="Last 7 days" value={formatNumber(stats.recent7Days)} detail={`${formatNumber(stats.recent30Days)} in 30 days`} />
-        <Metric label="Feedback notes" value={formatNumber(stats.feedbackCount)} />
+        {stats ? (
+          <>
+            <Metric label="Total debates" value={formatNumber(stats.totalDebates)} />
+            <Metric label="Completed" value={`${Math.round(stats.completionRate * 100)}%`} detail={`${formatNumber(stats.completedDebates)} ${stats.completedDebates === 1 ? "debate" : "debates"}`} />
+            <Metric label="Last 7 days" value={formatNumber(stats.recent7Days)} detail={`${formatNumber(stats.recent30Days)} in 30 days`} />
+            <Metric label="Feedback notes" value={formatNumber(stats.feedbackCount)} />
+          </>
+        ) : (
+          <StatsSpinner label="Loading pond activity totals" className="col-span-full min-h-[224px] sm:min-h-[116px]" />
+        )}
       </section>
 
       <section className="grid gap-6 lg:grid-cols-[1.4fr_1fr]">
         <Panel title="Debates over the last 14 days" subtitle="New debates per day (UTC)">
-          <div className="flex h-52 items-end gap-1.5 pt-5 sm:gap-3">
-            {stats.dailyActivity.map((day, index) => (
-              <div key={day.date} className="flex min-w-0 flex-1 flex-col items-center justify-end gap-2">
-                <span className="text-[10px] font-bold tabular-nums text-pond">{day.count || ""}</span>
-                <div
-                  className="w-full min-w-2 rounded-t-lg bg-leaf transition-all"
-                  style={{ height: `${Math.max(day.count ? 12 : 3, (day.count / maxDaily) * 150)}px`, opacity: day.count ? 1 : 0.18 }}
-                  title={`${day.label}: ${day.count}`}
-                />
-                <span className="hidden h-4 whitespace-nowrap text-[10px] font-semibold leading-4 text-mud sm:block">
-                  {index % 2 === 0 ? day.label : ""}
-                </span>
-              </div>
-            ))}
-          </div>
+          {stats ? (
+            <div className="flex h-52 items-end gap-1.5 pt-5 sm:gap-3">
+              {stats.dailyActivity.map((day, index) => (
+                <div key={day.date} className="flex min-w-0 flex-1 flex-col items-center justify-end gap-2">
+                  <span className="text-[10px] font-bold tabular-nums text-pond">{day.count || ""}</span>
+                  <div
+                    className="w-full min-w-2 rounded-t-lg bg-leaf transition-all"
+                    style={{ height: `${Math.max(day.count ? 12 : 3, (day.count / maxDaily) * 150)}px`, opacity: day.count ? 1 : 0.18 }}
+                    title={`${day.label}: ${day.count}`}
+                  />
+                  <span className="hidden h-4 whitespace-nowrap text-[10px] font-semibold leading-4 text-mud sm:block">
+                    {index % 2 === 0 ? day.label : ""}
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <StatsSpinner label="Loading daily debate activity" className="h-52" />
+          )}
         </Panel>
 
-        <Panel title="Debate outcomes" subtitle={`${stats.unfinishedDebates} without a final result`}>
-          <div className="space-y-3">
-            {stats.statusBreakdown.map((item) => (
-              <BarRow
-                key={item.status}
-                label={statusLabel(item.status)}
-                value={item.count}
-                width={(item.count / maxStatus) * 100}
-                color="bg-berry"
-              />
-            ))}
-          </div>
+        <Panel title="Debate outcomes" subtitle={stats ? `${stats.unfinishedDebates} without a final result` : "\u00a0"}>
+          {stats ? (
+            <div className="space-y-3">
+              {stats.statusBreakdown.map((item) => (
+                <BarRow
+                  key={item.status}
+                  label={statusLabel(item.status)}
+                  value={item.count}
+                  width={(item.count / maxStatus) * 100}
+                  color="bg-berry"
+                />
+              ))}
+            </div>
+          ) : (
+            <StatsSpinner label="Loading debate outcomes" className="h-52" />
+          )}
           <p className="mt-4 text-xs leading-5 text-mud">Each debate is counted once by its latest saved result. An unfinished debate may have stopped.</p>
         </Panel>
       </section>
 
       <section className="grid gap-6 lg:grid-cols-2">
         <Panel title="Models in the pond" subtitle="Debates using each model">
-          {stats.modelUsage.length ? (
+          {!stats ? (
+            <StatsSpinner label="Loading model usage" className="h-48" />
+          ) : stats.modelUsage.length ? (
             <div className="space-y-3">
               {stats.modelUsage.map((item) => (
                 <BarRow key={item.model} label={shortModel(item.model)} value={item.debates} width={(item.debates / maxModel) * 100} color="bg-[#9978b8]" />
@@ -126,25 +142,38 @@ function StatsContent({ stats }: { stats: PublicStats }) {
         </Panel>
 
         <Panel title="What the frogs produced" subtitle="From saved debate results">
-          <div className="grid grid-cols-2 gap-3">
-            <SmallMetric label="Evidence sources" value={stats.totalSources} />
-            <SmallMetric label="Debate turns" value={stats.totalTurns} />
-            <SmallMetric label="Follow-up answers" value={stats.totalFollowups} />
-            <SmallMetric label="Model tokens" value={stats.promptTokens + stats.completionTokens} />
-          </div>
+          {stats ? (
+            <div className="grid grid-cols-2 gap-3">
+              <SmallMetric label="Evidence sources" value={stats.totalSources} />
+              <SmallMetric label="Debate turns" value={stats.totalTurns} />
+              <SmallMetric label="Follow-up answers" value={stats.totalFollowups} />
+              <SmallMetric label="Model tokens" value={stats.promptTokens + stats.completionTokens} />
+            </div>
+          ) : (
+            <StatsSpinner label="Loading saved debate totals" className="h-44" />
+          )}
           <div className="mt-5 flex items-start gap-2 border-t border-pond/15 pt-4 text-xs leading-5 text-mud">
             <Database className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-            Aggregate counts from DebateFrog&apos;s Firestore collection
+            Aggregate counts from DebateFrog&apos;s database
           </div>
         </Panel>
       </section>
 
       <p className="pb-4 text-center text-xs text-[#cbd9d2]">
-        {stats.lastUpdatedAt
+        {stats && (stats.lastUpdatedAt
           ? `Latest activity ${new Date(stats.lastUpdatedAt).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short", timeZone: "UTC" })} UTC`
-          : "No debate activity recorded yet"}
+          : "No debate activity recorded yet")}
         <span className="mt-1 block">Day counts use UTC and include today.</span>
       </p>
+    </div>
+  );
+}
+
+function StatsSpinner({ label, className }: { label: string; className: string }) {
+  return (
+    <div className={`flex items-center justify-center text-pond ${className}`} role="status">
+      <Loader2 aria-hidden="true" className="h-6 w-6 motion-safe:animate-spin" />
+      <span className="sr-only">{label}</span>
     </div>
   );
 }

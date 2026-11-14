@@ -23,7 +23,7 @@ describe("debate event stream cleanup", () => {
 
   it("subscribes only to the requested retry attempt", async () => {
     const abort = new AbortController();
-    const response = await GET(new Request("http://localhost/events?attempt=2", { signal: abort.signal }), { params: { id: "test" } });
+    const response = await GET(new Request("http://localhost/events?attempt=2", { signal: abort.signal }), { params: Promise.resolve({ id: "test" }) });
     expect(store.subscribeToDebate).toHaveBeenLastCalledWith("test", expect.any(Function), 2);
     abort.abort();
     await response.text();
@@ -33,7 +33,7 @@ describe("debate event stream cleanup", () => {
     { kind: "complete", runId: "run" },
     { kind: "error", message: "The judge couldn't finish." }
   ] satisfies DebateLiveEvent[])("delivers $kind and releases heartbeat and subscription", async (event) => {
-    const response = await GET(new Request("http://localhost/events"), { params: { id: "test" } });
+    const response = await GET(new Request("http://localhost/events"), { params: Promise.resolve({ id: "test" }) });
     expect(vi.getTimerCount()).toBe(1);
     const body = response.text();
     listener(event);
@@ -44,7 +44,7 @@ describe("debate event stream cleanup", () => {
 
   it("cleans up when the browser aborts", async () => {
     const abort = new AbortController();
-    const response = await GET(new Request("http://localhost/events", { signal: abort.signal }), { params: { id: "test" } });
+    const response = await GET(new Request("http://localhost/events", { signal: abort.signal }), { params: Promise.resolve({ id: "test" }) });
     abort.abort();
     expect(await response.text()).toBe("");
     expect(unsubscribe).toHaveBeenCalledTimes(1);
@@ -56,7 +56,7 @@ describe("debate event stream cleanup", () => {
       callback({ kind: "complete", runId: "run" });
       return { unsubscribe, terminal: true };
     });
-    const response = await GET(new Request("http://localhost/events"), { params: { id: "test" } });
+    const response = await GET(new Request("http://localhost/events"), { params: Promise.resolve({ id: "test" }) });
     expect(await response.text()).toContain("event: complete");
     expect(unsubscribe).toHaveBeenCalledTimes(1);
     expect(vi.getTimerCount()).toBe(0);
