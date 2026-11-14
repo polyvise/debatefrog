@@ -27,12 +27,14 @@ else
 fi
 
 SHORT_SHA="$(git rev-parse --short HEAD)"
-IMAGE="$REGION-docker.pkg.dev/$PROJECT_ID/$ARTIFACT_REPO/$SERVICE:$SHORT_SHA"
+IMAGE="${GCP_DEBATEFROG_PREBUILT_IMAGE:-$REGION-docker.pkg.dev/$PROJECT_ID/$ARTIFACT_REPO/$SERVICE:$SHORT_SHA}"
 
-gcloud builds submit \
-  --config cloudbuild.deploy.yaml \
-  --substitutions "_IMAGE=$IMAGE,_DEPLOY_CHANNEL=$CHANNEL" \
-  --project "$PROJECT_ID"
+if [[ -z "${GCP_DEBATEFROG_PREBUILT_IMAGE:-}" ]]; then
+  gcloud builds submit \
+    --config cloudbuild.deploy.yaml \
+    --substitutions "_IMAGE=$IMAGE,_DEPLOY_CHANNEL=$CHANNEL" \
+    --project "$PROJECT_ID"
+fi
 
 gcloud run deploy "$SERVICE" \
   --image "$IMAGE" \
