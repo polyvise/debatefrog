@@ -822,8 +822,12 @@ export function FroglingsWorkspace() {
         </div>
       </header>
 
-      {historyOpen ? <DebateHistory entries={history} currentId={live?.debateId} loadingId={loadingHistoryId}
-        error={historyError} onOpen={requestNavigation} onClose={closeHistory} /> : null}
+      <div className="debate-history-reveal" data-open={historyOpen} inert={!historyOpen}>
+        <div className="min-h-0 overflow-hidden">
+          <DebateHistory entries={history} currentId={live?.debateId} loadingId={loadingHistoryId}
+            error={historyError} onOpen={requestNavigation} onClose={closeHistory} />
+        </div>
+      </div>
       {live && !historySaved ? <p role="status" className="mt-4 text-sm text-cream">This browser couldn’t save a link in My debates. Keep this page open to keep reading.</p> : null}
       {destination ? <LeaveDebateDialog destination={destination === "stats" ? "stats" : destination === "new" ? "new" : "history"}
         hasDebate={Boolean(live)} saved={historySaved} onCancel={() => setDestination(null)} onConfirm={() => void navigate(destination)} /> : null}
