@@ -4,6 +4,8 @@ import { useEffect, useRef } from "react";
 import { ArrowRight, BookOpen, X } from "lucide-react";
 import type { DebateHistoryEntry } from "@/lib/debate-history";
 
+const VISIBLE_HISTORY_LIMIT = 10;
+
 export function DebateHistory({ entries, currentId, loadingId, error, onOpen, onClose }: {
   entries: DebateHistoryEntry[];
   currentId?: string;
@@ -17,7 +19,7 @@ export function DebateHistory({ entries, currentId, loadingId, error, onOpen, on
       <div className="flex items-start justify-between gap-3">
         <div>
           <h2 id="history-title" className="text-xl font-black text-pond">My debates</h2>
-          <p className="mt-1 text-sm">Your last 50 questions from this browser. Pick one to open it again.</p>
+          <p className="mt-1 text-sm">Your last {VISIBLE_HISTORY_LIMIT} questions from this browser. Pick one to open it again.</p>
         </div>
         <button type="button" onClick={onClose} aria-label="Close my debates" className="history-close flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-pond hover:bg-mint">
           <X size={20} aria-hidden="true" />
@@ -26,7 +28,7 @@ export function DebateHistory({ entries, currentId, loadingId, error, onOpen, on
       {error ? <p role="alert" className="mt-4 text-sm font-semibold text-[#982f48]">{error}</p> : null}
       {entries.length ? (
         <ul className="mt-4 max-h-80 overflow-y-auto divide-y divide-pond/15">
-          {entries.map((entry) => (
+          {entries.slice(0, VISIBLE_HISTORY_LIMIT).map((entry) => (
             <li key={entry.id}>
               <button type="button" disabled={Boolean(loadingId)} onClick={() => onOpen(entry.id)}
                 aria-current={entry.id === currentId ? "true" : undefined}

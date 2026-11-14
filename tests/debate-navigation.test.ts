@@ -42,6 +42,22 @@ beforeEach(() => {
 afterEach(() => { act(() => root.unmount()); host.remove(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe("protected workspace navigation", () => {
+  it("shows only the 10 newest saved debates", async () => {
+    const entries = Array.from({ length: 12 }, (_, index) => ({
+      ...seed,
+      id: `debate_${index}`,
+      subject: `Question ${index}?`,
+      status: "complete" as const,
+      createdAt: new Date(Date.parse(seed.createdAt) + index * 1000).toISOString()
+    }));
+    entries.forEach(rememberDebate);
+    await render();
+    await click("My debates");
+    const rows = host.querySelectorAll("#debate-history li button");
+    expect(Array.from(rows, (row) => row.querySelector(".block")?.textContent))
+      .toEqual(entries.slice(-10).reverse().map((entry) => entry.subject));
+  });
+
   it("uses the same confirmation for the logo and New question, keeping progress on cancel", async () => {
     await render(); await start();
     expect(readDebateHistory()[0].id).toBe(seed.id);
