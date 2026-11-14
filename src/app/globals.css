@@ -57,6 +57,16 @@ select:focus-visible {
 }
 
 .workspace-navigation :is(button, a):focus-visible { outline-color: var(--sun); }
+.debate-history-reveal {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 400ms ease-in-out;
+  overflow-anchor: none;
+}
+.debate-history-reveal[data-open="true"] { grid-template-rows: 1fr; }
+@media (prefers-reduced-motion: reduce) {
+  .debate-history-reveal { transition: none; }
+}
 .debate-history button:focus-visible,
 .debate-leave-dialog button:focus-visible { outline: 2px solid var(--pond); outline-offset: 2px; }
 .debate-history ul { scrollbar-color: var(--pond) var(--panel); scrollbar-width: thin; }
