@@ -49,7 +49,7 @@ export function DebateHistory({ entries, currentId, loadingId, error, onOpen, on
           <p>No debates here yet. Start a question and it will appear here.</p>
         </div>
       )}
-      <p className="mt-4 text-xs leading-relaxed text-mud">Anyone using this browser can see this list. Clearing browser data clears the list. Debates from before this feature won’t appear here.</p>
+      <p className="mt-4 text-xs leading-relaxed text-mud">Anyone using this browser can see this list. Clearing browser data clears the list.</p>
     </section>
   );
 }
