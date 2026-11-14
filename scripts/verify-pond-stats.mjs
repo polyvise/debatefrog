@@ -12,12 +12,15 @@ assert.deepEqual(audit.statusRunMismatch, []);
 const response = await fetch(url);
 assert.equal(response.status, 200);
 const document = new JSDOM(await response.text()).window.document;
+assert.ok(document.querySelector('main.pond-stats-page'), 'Pond theme is deployed');
+// Streamed HTML can contain both the loading cards and the finished cards.
+const results = document.querySelector('#pond-stats-results');
+assert.ok(results, 'Pond stats finished loading');
 const format = value => new Intl.NumberFormat('en-US', { notation: value >= 10000 ? 'compact' : 'standard', maximumFractionDigits: 1 }).format(value);
 const text = node => node?.textContent.trim();
-const panel = title => [...document.querySelectorAll('section')].find(node => text(node.querySelector(':scope > h2')) === title);
+const panel = title => [...results.querySelectorAll('section')].find(node => text(node.querySelector(':scope > h2')) === title);
 const values = node => [...node.children].map(item => text(item.firstElementChild));
-assert.ok(document.querySelector('main.pond-stats-page'), 'Pond theme is deployed');
-const totals = document.querySelector('section[aria-label="Pond activity totals"]');
+const totals = results.querySelector('section[aria-label="Pond activity totals"]');
 assert.deepEqual(values(totals), [format(audit.parsedCount), `${audit.completionPercent}%`, format(audit.recent7Days), format(audit.feedbackCount)]);
 assert.ok(totals.textContent.includes(`${format(audit.statusCounts.complete ?? 0)} debate`));
 assert.ok(totals.textContent.includes(`${format(audit.recent30Days)} in 30 days`));
@@ -49,9 +52,10 @@ for (let i = 0; i < expectedModels.length; i++) {
   assert.equal(text(spans[1]), format(count));
 }
 assert.deepEqual(values(panel('What the frogs produced').querySelector('div.grid')), [audit.totalSources, audit.totalTurns, audit.totalFollowups, audit.promptTokens + audit.completionTokens].map(format));
-assert.ok(document.body.textContent.includes('Day counts use UTC and include today.'));
+assert.ok(panel('What the frogs produced').textContent.includes("Aggregate counts from DebateFrog's database"));
+assert.ok(results.textContent.includes('Day counts use UTC and include today.'));
 if (audit.lastUpdatedAt) {
   const latest = new Date(audit.lastUpdatedAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'UTC' });
-  assert.ok(document.body.textContent.includes(`Latest activity ${latest} UTC`));
+  assert.ok(results.textContent.includes(`Latest activity ${latest} UTC`));
 }
 console.log(JSON.stringify({url, result:'PASS', checkedAgainst:audit.checkedAt, total:audit.parsedCount, completed:audit.statusCounts.complete ?? 0, failed:audit.statusCounts.failed ?? 0, unfinished:audit.unfinished.length, checks:['outcomes reconcile','completion percentage','7/30-day totals','14 daily buckets','model counts','source/turn/follow-up/token totals','feedback count','pond theme']}, null, 2));

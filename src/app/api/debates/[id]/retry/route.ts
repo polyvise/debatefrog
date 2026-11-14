@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { retryDebate } from "@/server/debate-store";
 
-export async function POST(request: Request, context: { params: Promise<{ id: string }> | { id: string } }) {
+export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await context.params;
     const { attempt } = z.object({ attempt: z.number().int().nonnegative() }).parse(await request.json());

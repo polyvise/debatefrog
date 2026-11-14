@@ -4,7 +4,7 @@ import { followupRequestSchema } from "@polyvise/core/debate/schema";
 import { addFollowup } from "@/server/debate-store";
 
 type RouteContext = {
-  params: Promise<{ id: string }> | { id: string };
+  params: Promise<{ id: string }>;
 };
 
 export async function POST(request: NextRequest, context: RouteContext) {
