@@ -11,6 +11,5 @@ if [[ -f "$APP_ENV" ]]; then
   set +a
 fi
 
-export POLYVISE_ENABLE_MOCK_LLM="${POLYVISE_ENABLE_MOCK_LLM:-false}"
 cd "$ROOT_DIR"
 exec npm run dev

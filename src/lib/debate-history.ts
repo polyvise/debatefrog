@@ -1,4 +1,4 @@
-import { debateStatuses, type DebateRecord } from "@polyvise/core/debate/types";
+import { debateStatuses, type DebateRecord } from "@/lib/polyvise-api/types";
 
 const HISTORY_KEY = "debatefrog:history:v1";
 const HISTORY_LIMIT = 50;

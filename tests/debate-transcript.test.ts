@@ -1,7 +1,7 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import type { EvidenceSource, RoundTurn } from "@polyvise/core/debate/types";
+import type { EvidenceSource, RoundTurn } from "@/lib/polyvise-api/types";
 import { DebateTranscript } from "@/components/debate-transcript";
 
 const source = (id: string, overrides: Partial<EvidenceSource> = {}): EvidenceSource => ({

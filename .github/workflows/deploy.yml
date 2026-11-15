@@ -9,7 +9,6 @@ on:
 permissions:
   contents: read
   id-token: write
-  packages: read
 
 concurrency:
   group: deploy-debatefrog-main
@@ -36,8 +35,6 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Test
         run: npm run test:coverage
@@ -59,16 +56,11 @@ jobs:
 
       - name: Deploy Debatefrog to Cloud Run
         env:
-          NPM_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           POLYVISE_REPOSITORY: firestore
-          POLYVISE_ENABLE_MOCK_LLM: "false"
-          POLYVISE_EVIDENCE_PROVIDER: tavily
+          POLYVISE_API_URL: https://api.polyvise.ai
           IMAGE: us-central1-docker.pkg.dev/websites-prod-496602/polyvise/debatefrog-web:${{ github.sha }}
         run: |
-          docker build \
-            --secret id=npm_token,env=NPM_TOKEN \
-            -t "$IMAGE" \
-            .
+          docker build -t "$IMAGE" .
           docker push "$IMAGE"
           gcloud run deploy debatefrog-web \
             --image "$IMAGE" \
@@ -83,5 +75,5 @@ jobs:
             --min-instances 0 \
             --max-instances "${GCP_CLOUD_RUN_MAX_INSTANCES:-3}" \
             --timeout 300 \
-            --set-env-vars "NEXT_PUBLIC_SITE_URL=https://debatefrog.com,POLYVISE_REPOSITORY=$POLYVISE_REPOSITORY,FIRESTORE_PROJECT_ID=$GCP_PROJECT_ID,POLYVISE_ENABLE_MOCK_LLM=$POLYVISE_ENABLE_MOCK_LLM,POLYVISE_EVIDENCE_PROVIDER=$POLYVISE_EVIDENCE_PROVIDER,POLYVISE_QUICK_MODEL=openai/gpt-4o-mini,POLYVISE_DEEP_MODEL=openai/gpt-4.1,POLYVISE_OPENING_MODEL=openai/gpt-4o-mini,POLYVISE_CROSS_EXAMINATION_MODEL=openai/gpt-4o-mini,POLYVISE_REBUTTAL_MODEL=openai/gpt-4.1,POLYVISE_CLOSING_MODEL=openai/gpt-4.1,POLYVISE_JUDGE_MODEL=openai/gpt-4.1,POLYVISE_LLM_TIMEOUT_MS=45000,POLYVISE_LLM_MAX_TOKENS=2200" \
-            --update-secrets "OPENROUTER_API_KEY=debatefrog-openrouter-api-key:latest,TAVILY_API_KEY=debatefrog-tavily-api-key:latest"
+            --set-env-vars "NEXT_PUBLIC_SITE_URL=https://debatefrog.com,POLYVISE_REPOSITORY=$POLYVISE_REPOSITORY,FIRESTORE_PROJECT_ID=$GCP_PROJECT_ID,POLYVISE_API_URL=$POLYVISE_API_URL,DEBATEFROG_CALLBACK_URL=https://debatefrog.com,POLYVISE_QUICK_MODEL=openai/gpt-4o-mini,POLYVISE_DEEP_MODEL=openai/gpt-4.1,POLYVISE_OPENING_MODEL=openai/gpt-4o-mini,POLYVISE_CROSS_EXAMINATION_MODEL=openai/gpt-4o-mini,POLYVISE_REBUTTAL_MODEL=openai/gpt-4.1,POLYVISE_CLOSING_MODEL=openai/gpt-4.1,POLYVISE_JUDGE_MODEL=openai/gpt-4.1" \
+            --set-secrets "POLYVISE_API_KEY=polyvise-api-key-debatefrog:latest"

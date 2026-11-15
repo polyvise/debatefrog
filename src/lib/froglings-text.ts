@@ -13,7 +13,7 @@ import type {
   RoundTurn,
   Scorecard,
   TopicKind
-} from "@polyvise/core/debate/types";
+} from "@/lib/polyvise-api/types";
 
 /**
  * Plain-language stage labels for younger readers. The engine emits the

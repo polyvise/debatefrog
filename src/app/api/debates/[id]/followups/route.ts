@@ -1,7 +1,9 @@
 import { NextRequest } from "next/server";
-import { ZodError } from "zod";
-import { followupRequestSchema } from "@polyvise/core/debate/schema";
+import { z, ZodError } from "zod";
 import { addFollowup } from "@/server/debate-store";
+
+// The same bounds the Polyvise API applies to a follow-up question.
+const followupRequestSchema = z.object({ question: z.string().trim().min(4).max(700) });
 
 type RouteContext = {
   params: Promise<{ id: string }>;

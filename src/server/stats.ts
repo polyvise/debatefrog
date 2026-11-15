@@ -3,7 +3,7 @@ import {
   type DebateRecord,
   type DebateStatus,
   type UserFeedback
-} from "@polyvise/core/debate/types";
+} from "@/lib/polyvise-api/types";
 import {
   createDefaultDebateRepository,
   createDefaultFeedbackRepository

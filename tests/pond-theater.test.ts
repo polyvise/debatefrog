@@ -1,7 +1,7 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { DebateRecord, RoundTurn } from "@polyvise/core/debate/types";
+import type { DebateRecord, RoundTurn } from "@/lib/polyvise-api/types";
 import { PondTheater } from "@/components/pond-theater";
 import { liveReducer, type FroglingsLiveState } from "@/components/froglings-workspace";
 import { froglingsBubbleText, froglingsTheaterCaption } from "@/lib/froglings-text";

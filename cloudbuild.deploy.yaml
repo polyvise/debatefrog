@@ -1,16 +1,7 @@
 steps:
   - name: gcr.io/cloud-builders/docker
-    env:
-      # Required for the Dockerfile's `# syntax=` frontend, `docker build
-      # --secret`, and `--mount=type=secret`. The cloud-builders/docker image
-      # does not enable BuildKit by default.
-      - DOCKER_BUILDKIT=1
-    secretEnv:
-      - NPM_TOKEN
     args:
       - build
-      - --secret
-      - id=npm_token,env=NPM_TOKEN
       - --build-arg
       - NEXT_PUBLIC_DEPLOY_CHANNEL=${_DEPLOY_CHANNEL}
       - --tag
@@ -22,11 +13,6 @@ steps:
 # makes images channel-specific: preview and production must not share a tag.
 substitutions:
   _DEPLOY_CHANNEL: production
-
-availableSecrets:
-  secretManager:
-    - versionName: projects/${PROJECT_ID}/secrets/polyvise-packages-token/versions/latest
-      env: NPM_TOKEN
 
 images:
   - ${_IMAGE}

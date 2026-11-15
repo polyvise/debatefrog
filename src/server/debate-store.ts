@@ -1,27 +1,15 @@
 import { DEFAULT_READING_LEVEL } from "@/lib/reading-level";
 import { randomUUID } from "node:crypto";
-import { LlmProviderFailure } from "@polyvise/core/providers/llm";
-import {
-  loadDebateRuntimeConfig,
-  type DebateRuntimeConfig
-} from "@polyvise/core/debate/config";
-import { feedbackRequestSchema, followupOutputSchema } from "@polyvise/core/debate/schema";
-import {
-  frameDebateRequest,
-  productNotes,
-  runHybridCouncilDebate
-} from "@polyvise/core/debate/engine";
-import type { DebateCheckpoint } from "@polyvise/core/debate/engine";
 import type { RecoverableDebateRecord } from "@/lib/debate-recovery";
 import { createDefaultDebateRepository, createDefaultFeedbackRepository } from "./repository";
 import type {
   DebateLiveEvent,
   DebateRecord,
   DebateRequest,
+  DebateRun,
   FollowupExchange,
-  ModelSnapshot,
   UserFeedback
-} from "@polyvise/core/debate/types";
+} from "@/lib/polyvise-api/types";
 import {
   resolveDebateStepModelDefaults,
   resolveDebateStepModels,
@@ -33,7 +21,21 @@ import {
   toCoreDebateRequest,
   type DebatefrogRequest
 } from "@/server/debate-request";
-import { RoundModelLlmProvider } from "@/server/round-model-provider";
+import { providerOptions, runOptions } from "@/server/generation-policy";
+import {
+  answerFollowup,
+  getJob,
+  getJobCheckpoint,
+  jobEvents,
+  normalizeFeedback,
+  PolyviseApiError,
+  resumeJob,
+  seedRecord,
+  startJob,
+  type JobFailure,
+  type JobStatus,
+  type RunCheckpoint
+} from "@/server/polyvise-api";
 
 const repository = createDefaultDebateRepository();
 const feedbackRepository = createDefaultFeedbackRepository();
@@ -42,12 +44,15 @@ export const DEBATE_UNAVAILABLE_MESSAGE =
 export const DEBATE_JUDGE_UNAVAILABLE_MESSAGE =
   "The judge frog couldn't finish this step. You can try it again.";
 
+/**
+ * What a retry needs. The Polyvise API runs the debate and keeps its steps
+ * for a while; the checkpoint saved here outlives the API's copy.
+ */
 type StoredDebateRecord = RecoverableDebateRecord & {
   retryState?: {
     request: DebateRequest;
-    config: DebateRuntimeConfig;
     stepModels: DebateStepModelSelections;
-    checkpoint?: DebateCheckpoint;
+    checkpoint?: RunCheckpoint;
     events: DebateLiveEvent[];
     attempt: number;
   };
@@ -107,69 +112,18 @@ class DebateEventBus {
   }
 }
 
-const buses = new Map<string, DebateEventBus>();
-
-function scheduleBusCleanup(id: string, delayMs = 5 * 60 * 1000): void {
-  const bus = buses.get(id);
-  setTimeout(() => {
-    if (buses.get(id) === bus) buses.delete(id);
-  }, delayMs).unref?.();
+/** An attempt this server instance is following on the API. */
+interface RunWatch {
+  bus: DebateEventBus;
+  completion: Promise<DebateRecord>;
 }
 
-function buildSeedRecord(input: DebatefrogRequest): {
-  record: StoredDebateRecord;
-  request: DebateRequest;
-  config: DebateRuntimeConfig;
-  stepModels: DebateStepModelSelections;
-  framed: ReturnType<typeof frameDebateRequest>;
-} {
-  const parsed = debatefrogRequestSchema.parse(input) as DebatefrogRequest;
-  const request = toCoreDebateRequest(parsed);
-  const id = `debate_${randomUUID().slice(0, 10)}`;
-  const framed = frameDebateRequest(request);
-  const createdAt = new Date().toISOString();
-  const record: StoredDebateRecord = {
-    readingLevel: parsed.readingLevel ?? DEFAULT_READING_LEVEL,
-    id,
-    subject: framed.subject,
-    context: framed.context,
-    mode: request.mode,
-    evidence: request.evidence,
-    status: "queued",
-    resolution: framed.resolution,
-    topicKind: framed.topicKind,
-    highStakes: framed.highStakes,
-    createdAt,
-    updatedAt: createdAt,
-    productNotes: productNotes(),
-    followups: []
-  };
+const watches = new Map<string, RunWatch>();
 
-  const baseConfig = loadDebateRuntimeConfig();
-  const defaults = resolveDebateStepModelDefaults();
-  const requestedStepModels = stepModelsFromRequest(parsed.models);
-  const stepModels = resolveDebateStepModels(requestedStepModels, defaults);
-  const config: DebateRuntimeConfig = {
-    ...baseConfig,
-    // Debatefrog's public transcript promises four frog rounds. Do not let a
-    // legacy shared-core default silently omit Closing / Last Word.
-    maxRounds: 4,
-    quickModel: stepModels.opening,
-    deepModel: stepModels.rebuttal,
-    // Team metadata has one model field per frog. Opening is the least
-    // surprising representative value; actual calls are routed per round.
-    yesModel: stepModels.opening,
-    noModel: stepModels.opening,
-    judgeModel: stepModels.judge
-  };
-
-  return {
-    record,
-    request,
-    config: configWithDevOverrides(config, request),
-    stepModels,
-    framed
-  };
+function scheduleWatchCleanup(id: string, watch: RunWatch, delayMs = 5 * 60 * 1000): void {
+  setTimeout(() => {
+    if (watches.get(id) === watch) watches.delete(id);
+  }, delayMs).unref?.();
 }
 
 function stepModelsFromRequest(
@@ -192,17 +146,9 @@ function stepModelsFromRequest(
   };
 }
 
-function configWithDevOverrides(config: DebateRuntimeConfig, request: DebateRequest): DebateRuntimeConfig {
-  if (process.env.NODE_ENV === "production" || !request.devOptions?.liveApis) {
-    return config;
-  }
-
-  return {
-    ...config,
-    evidenceProvider: "tavily",
-    enableMockLlm: false,
-    allowDeterministicFallbacks: false
-  };
+function optionsFor(record: StoredDebateRecord) {
+  const { request, stepModels } = record.retryState!;
+  return runOptions(stepModels, record.readingLevel, Boolean(request.devOptions?.liveApis));
 }
 
 export interface StartDebateResult {
@@ -210,18 +156,60 @@ export interface StartDebateResult {
   completion: Promise<DebateRecord>;
 }
 
+/**
+ * Starts a debate on the Polyvise API and follows it from here.
+ *
+ * The API validates and frames the request and runs the engine as a
+ * background job; this app owns the record. Throws `ZodError` or an
+ * `invalidRequest` `PolyviseApiError` when the request is malformed.
+ */
 export async function startDebate(input: DebatefrogRequest): Promise<StartDebateResult> {
-  const { record, request, config, stepModels } = buildSeedRecord(input);
+  const parsed = debatefrogRequestSchema.parse(input) as DebatefrogRequest;
+  const { record, request } = await seedRecord(toCoreDebateRequest(parsed));
   const stored: StoredDebateRecord = {
-    ...record, retryState: { request, config, stepModels, events: [], attempt: 0 }
+    ...record,
+    readingLevel: parsed.readingLevel ?? DEFAULT_READING_LEVEL,
+    retryState: {
+      request,
+      stepModels: resolveDebateStepModels(stepModelsFromRequest(parsed.models), resolveDebateStepModelDefaults()),
+      events: [],
+      attempt: 0
+    }
   };
+  await startJob(stored.id, request, optionsFor(stored));
   await repository.save(stored);
-  const completion = executeDebate(stored);
-  return { debate: publicDebate(stored), completion };
+  return { debate: publicDebate(stored), completion: watchRun(stored).completion };
 }
 
 function nextUpdatedAt(previous: string): string {
   return new Date(Math.max(Date.now(), Date.parse(previous) + 1)).toISOString();
+}
+
+function isSettled(status: DebateRecord["status"]): boolean {
+  return status === "complete" || status === "failed" || status === "partial";
+}
+
+async function findJob(id: string): Promise<JobStatus | null> {
+  try {
+    return await getJob(id);
+  } catch (error) {
+    if (error instanceof PolyviseApiError && error.notFound) return null;
+    throw error;
+  }
+}
+
+/** Puts the API back to work on a debate, reusing whatever it or this app saved. */
+async function relaunch(record: StoredDebateRecord): Promise<void> {
+  const job = await findJob(record.id);
+  // Still running, or finished after this app stopped following it: just follow.
+  if (job?.status === "running" || job?.status === "complete") return;
+  if (job?.resumable) {
+    await resumeJob(record.id, job.attempt);
+    return;
+  }
+  // The API no longer holds the job (it restarted, or the job expired).
+  const { request, checkpoint } = record.retryState!;
+  await startJob(record.id, request, { ...optionsFor(record), checkpoint });
 }
 
 export async function retryDebate(id: string, attempt: number): Promise<{ debate: RecoverableDebateRecord; accepted: boolean } | null> {
@@ -240,89 +228,171 @@ export async function retryDebate(id: string, attempt: number): Promise<{ debate
     const current = await repository.get(id) as StoredDebateRecord | null;
     return current ? { debate: publicDebate(current), accepted: current.status !== "failed" } : null;
   }
-  void executeDebate(resumed);
+  try {
+    await relaunch(resumed);
+  } catch (error) {
+    // Hand the attempt back so the same retry can be made again.
+    await repository.saveIfUnchanged(
+      { ...record, status: "failed", updatedAt: nextUpdatedAt(resumed.updatedAt) },
+      resumed.updatedAt
+    );
+    throw error;
+  }
+  watchRun(resumed);
   return { debate: publicDebate(resumed), accepted: true };
 }
 
-function executeDebate(seed: StoredDebateRecord): Promise<DebateRecord> {
+function watchRun(record: StoredDebateRecord): RunWatch {
+  const attempt = record.retryState!.attempt;
+  const existing = watches.get(record.id);
+  if (existing?.bus.attempt === attempt) return existing;
+
+  const bus = new DebateEventBus(attempt);
+  const watch: RunWatch = { bus, completion: followRun(record, bus) };
+  // Prevent unhandled rejection warnings when callers only consume via SSE.
+  watch.completion.catch(() => {}).finally(() => scheduleWatchCleanup(record.id, watch));
+  watches.set(record.id, watch);
+  return watch;
+}
+
+const MAX_STREAM_FAILURES = 5;
+/** Longer than the API's keep-alive interval, so a quiet but healthy stream is not mistaken for a broken one. */
+const HEALTHY_STREAM_MS = 20_000;
+const REPLACED_MESSAGE = "This debate attempt was replaced by another request.";
+const INTERRUPTED: JobFailure = {
+  message: "The Polyvise API no longer has this run.",
+  summary: "The run was interrupted before it finished.",
+  step: "run"
+};
+
+function isLiveEvent(data: unknown): data is DebateLiveEvent {
+  return Boolean(data) && typeof data === "object" && typeof (data as { kind?: unknown }).kind === "string";
+}
+
+/**
+ * Relays one attempt's events from the API onto the bus, saving progress as
+ * it goes, then stores the outcome. A dropped connection resumes after the
+ * last event received.
+ */
+async function followRun(seed: StoredDebateRecord, bus: DebateEventBus): Promise<DebateRecord> {
   let record = seed;
-  const { request, config, stepModels } = record.retryState!;
-  let checkpoint = record.retryState!.checkpoint;
   let stage: DebateRecord["status"] = record.status;
-  const bus = new DebateEventBus(record.retryState!.attempt);
-  buses.set(record.id, bus);
-  const persist = async (status: DebateRecord["status"], latestRun = record.latestRun) => {
+
+  // False when another instance following the same attempt saved first; its
+  // record becomes the base for the next save.
+  const persist = async (
+    status: DebateRecord["status"],
+    latestRun: DebateRun | undefined,
+    checkpoint: RunCheckpoint | undefined
+  ): Promise<boolean> => {
     const next: StoredDebateRecord = {
       ...record, status, latestRun, updatedAt: nextUpdatedAt(record.updatedAt),
       retryState: { ...record.retryState!, checkpoint, events: [...bus.buffer] }
     };
-    if (!await repository.saveIfUnchanged(next, record.updatedAt)) {
-      throw new Error("This debate attempt was replaced by another request.");
+    if (await repository.saveIfUnchanged(next, record.updatedAt)) {
+      record = next;
+      return true;
     }
-    record = next;
-    return publicDebate(record);
+    const current = await repository.get(record.id) as StoredDebateRecord | null;
+    if (current?.retryState?.attempt !== bus.attempt) throw new Error(REPLACED_MESSAGE);
+    record = current;
+    return false;
   };
 
-  const completion = (async (): Promise<DebateRecord> => {
-    try {
-      const run = await runHybridCouncilDebate(record.id, request, frameDebateRequest(request), {
-        config,
-        checkpoint,
-        onCheckpoint: async (value) => {
-          checkpoint = value;
-          await persist(stage);
-        },
-        streamTurns: true,
-        provider: new RoundModelLlmProvider(config, stepModels, record.readingLevel),
-        emit: (event) => {
-          // Publish completion only after the durable result is available.
-          if (event.kind === "complete" || (event.kind === "stage" && event.status === "complete")) return;
-          if (event.kind === "stage") stage = event.status;
-          bus.emit(event);
-        }
-      });
-      const completed = await persist(run.status, run);
-      bus.emit({ kind: "stage", status: "complete" });
-      bus.emit({ kind: "complete", runId: run.id });
-      scheduleBusCleanup(record.id);
-      return completed;
-    } catch (error) {
-      const failedSnapshot = modelSnapshotFromError(error);
-      console.error("[debatefrog.run.failed]", {
-        debateId: record.id,
-        role: failedSnapshot?.role,
-        model: failedSnapshot?.model,
-        attempts: failedSnapshot?.attempts?.length,
-        name: error instanceof Error ? error.name : "UnknownError",
-        message:
-          error instanceof Error
-            ? error.message.replace(/sk-or-v1-[a-zA-Z0-9_-]+/g, "[redacted-api-key]").slice(0, 1000)
-            : "Unknown debate workflow failure."
-      });
-      if (failedSnapshot) {
-        bus.emit({ kind: "model_snapshot", snapshot: failedSnapshot });
-      }
-      try {
-        await persist("failed");
-      } finally {
-        bus.emit({ kind: "error", message: stage === "judging" ? DEBATE_JUDGE_UNAVAILABLE_MESSAGE : DEBATE_UNAVAILABLE_MESSAGE });
-        scheduleBusCleanup(record.id);
-      }
-      throw error;
+  const savedCheckpoint = async () =>
+    (await getJobCheckpoint(record.id).catch(() => undefined)) ?? record.retryState!.checkpoint;
+
+  const settle = async (status: DebateRecord["status"], latestRun: DebateRun | undefined) => {
+    const checkpoint = await savedCheckpoint();
+    for (let tries = 0; tries < 3; tries++) {
+      if (await persist(status, latestRun, checkpoint)) return;
+      if (isSettled(record.status)) return; // another instance stored the outcome
     }
-  })();
+    throw new Error("The debate result could not be saved.");
+  };
 
-  // Prevent unhandled rejection warnings when callers only consume via SSE.
-  completion.catch(() => {});
+  const fail = async (failure: JobFailure): Promise<never> => {
+    console.error("[debatefrog.run.failed]", {
+      debateId: record.id,
+      step: failure.step,
+      model: failure.model,
+      attempts: failure.snapshot?.attempts?.length,
+      reason: failure.summary,
+      message: failure.message.replace(/sk-or-v1-[a-zA-Z0-9_-]+/g, "[redacted-api-key]").slice(0, 1000)
+    });
+    try {
+      await settle("failed", record.latestRun);
+    } finally {
+      bus.emit({ kind: "error", message: stage === "judging" ? DEBATE_JUDGE_UNAVAILABLE_MESSAGE : DEBATE_UNAVAILABLE_MESSAGE });
+    }
+    throw new Error(failure.message);
+  };
 
-  return completion;
-}
+  let lastEventId: string | undefined;
+  let failures = 0;
 
-function modelSnapshotFromError(error: unknown): ModelSnapshot | null {
-  if (error instanceof LlmProviderFailure) {
-    return error.snapshot;
+  try {
+    for (;;) {
+      const connectedAt = Date.now();
+      let progressed = false;
+      let ended = false;
+      let lost = false;
+      try {
+        for await (const event of jobEvents(record.id, lastEventId)) {
+          progressed = true;
+          if (event.id) lastEventId = event.id;
+          // The outcome is published below, once it is stored, so a client that
+          // stops listening at `complete` can already fetch the finished debate.
+          if (event.name === "closed" || event.name === "complete" || event.name === "error") {
+            ended = true;
+            break;
+          }
+          if (!isLiveEvent(event.data)) continue;
+          const live = event.data;
+          if (live.kind === "stage") {
+            if (live.status === "complete") continue;
+            stage = live.status;
+          }
+          bus.emit(live);
+          if (live.kind === "stage" || live.kind === "turns") {
+            await persist(stage, record.latestRun, await savedCheckpoint());
+          }
+        }
+      } catch (error) {
+        if (error instanceof Error && error.message === REPLACED_MESSAGE) throw error;
+        lost = error instanceof PolyviseApiError && error.notFound;
+        if (!lost) {
+          console.warn("[debatefrog.run.stream]", {
+            debateId: record.id,
+            reason: error instanceof Error ? error.message.slice(0, 300) : "Unknown error"
+          });
+        }
+      }
+
+      if (lost) return await fail(INTERRUPTED);
+      if (ended) {
+        const job = await findJob(record.id).catch(() => null);
+        if (job?.status === "complete" && job.run) {
+          await settle(job.run.status, job.run);
+          bus.emit({ kind: "stage", status: "complete" });
+          bus.emit({ kind: "complete", runId: job.run.id });
+          return publicDebate(record);
+        }
+        if (job?.status !== "running") return await fail(job?.failure ?? INTERRUPTED);
+      }
+      failures = progressed || Date.now() - connectedAt >= HEALTHY_STREAM_MS ? 0 : failures + 1;
+      if (failures >= MAX_STREAM_FAILURES) {
+        return await fail({ ...INTERRUPTED, message: "Lost contact with the Polyvise API." });
+      }
+      if (failures > 0) {
+        await new Promise((resolve) => setTimeout(resolve, Math.min(500 * 2 ** failures, 8000)));
+      }
+    }
+  } catch (error) {
+    // Anyone still listening to a replaced attempt must be released.
+    if (!bus.isTerminal()) bus.emit({ kind: "error", message: DEBATE_UNAVAILABLE_MESSAGE });
+    throw error;
   }
-  return null;
 }
 
 export async function createDebate(input: DebatefrogRequest): Promise<DebateRecord> {
@@ -330,17 +400,31 @@ export async function createDebate(input: DebatefrogRequest): Promise<DebateReco
   return completion;
 }
 
-export function subscribeToDebate(
+/**
+ * Streams an attempt's events to `listener`, replaying what already happened.
+ *
+ * An attempt that is still in flight but unknown to this server instance —
+ * started by another instance, or before a restart — is picked up from the
+ * API, which replays it and lets this instance store the outcome.
+ */
+export async function subscribeToDebate(
   debateId: string,
   listener: Listener,
   attempt?: number
-): { unsubscribe: () => void; terminal: boolean } {
-  const bus = buses.get(debateId);
-  if (!bus || (attempt !== undefined && bus.attempt !== attempt)) {
-    return { unsubscribe: () => {}, terminal: true };
+): Promise<{ unsubscribe: () => void; terminal: boolean }> {
+  let watch = watches.get(debateId);
+  if (!watch || (attempt !== undefined && watch.bus.attempt !== attempt)) {
+    const record = await repository.get(debateId) as StoredDebateRecord | null;
+    if (
+      !record?.retryState || isSettled(record.status) ||
+      (attempt !== undefined && record.retryState.attempt !== attempt)
+    ) {
+      return { unsubscribe: () => {}, terminal: true };
+    }
+    watch = watchRun(record);
   }
-  const unsubscribe = bus.subscribe(listener);
-  return { unsubscribe, terminal: bus.isTerminal() };
+  const unsubscribe = watch.bus.subscribe(listener);
+  return { unsubscribe, terminal: watch.bus.isTerminal() };
 }
 
 export async function getDebate(id: string): Promise<RecoverableDebateRecord | null> {
@@ -352,6 +436,7 @@ export function listDebates(): Promise<DebateRecord[]> {
   return repository.list();
 }
 
+/** Throws an `invalidRequest` `PolyviseApiError` when the feedback is malformed. */
 export async function submitFeedback(input: {
   app?: string;
   message: string;
@@ -360,18 +445,7 @@ export async function submitFeedback(input: {
   userAgent?: string;
   metadata?: Record<string, unknown>;
 }): Promise<UserFeedback> {
-  const parsed = feedbackRequestSchema.parse(input);
-  const feedback: UserFeedback = {
-    id: `feedback_${randomUUID().slice(0, 12)}`,
-    app: input.app?.trim() || "debatefrog",
-    message: parsed.message,
-    debateId: parsed.debateId || undefined,
-    pagePath: parsed.pagePath || undefined,
-    userAgent: input.userAgent?.trim() || undefined,
-    metadata: input.metadata ?? {},
-    createdAt: new Date().toISOString()
-  };
-
+  const feedback = await normalizeFeedback({ ...input, app: input.app?.trim() || "debatefrog" });
   await feedbackRepository.save(feedback);
   return feedback;
 }
@@ -386,7 +460,7 @@ export async function addFollowup(debateId: string, question: string): Promise<F
     return null;
   }
 
-  const answer = await answerFollowup(question, debate);
+  const answer = await followupAnswer(question, debate);
   const exchange: FollowupExchange = {
     id: `followup_${randomUUID().slice(0, 8)}`,
     question,
@@ -404,22 +478,29 @@ export async function addFollowup(debateId: string, question: string): Promise<F
   return exchange;
 }
 
-async function answerFollowup(question: string, debate: StoredDebateRecord): Promise<string> {
-  const fallback = {
-    answer: answerFollowupDeterministic(question, debate)
-  };
+async function followupAnswer(question: string, debate: StoredDebateRecord): Promise<string> {
+  const fallbackAnswer = answerFollowupDeterministic(question, debate);
 
   try {
-    const provider = new RoundModelLlmProvider(loadDebateRuntimeConfig(), resolveDebateStepModelDefaults(), debate.readingLevel);
-    const result = await provider.generateStructured<unknown>({
-      role: "follow-up answer",
-      schemaName: "followupOutput",
-      fallback,
-      prompt: JSON.stringify({ question, subject: debate.subject, summary: debate.latestRun?.summary, sources: debate.latestRun?.sources, turns: debate.latestRun?.turns, ...fallback })
-    });
-    return followupOutputSchema.parse(result.data).answer;
+    const { answer } = await answerFollowup(
+      {
+        question,
+        fallbackAnswer,
+        context: {
+          subject: debate.subject,
+          summary: debate.latestRun?.summary,
+          sources: debate.latestRun?.sources,
+          turns: debate.latestRun?.turns
+        }
+      },
+      {
+        config: { useStrictJsonSchema: false },
+        provider: providerOptions(resolveDebateStepModelDefaults(), debate.readingLevel)
+      }
+    );
+    return answer;
   } catch {
-    return fallback.answer;
+    return fallbackAnswer;
   }
 }
 

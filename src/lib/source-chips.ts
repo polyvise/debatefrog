@@ -1,4 +1,4 @@
-import type { EvidenceSource } from "@polyvise/core/debate/types";
+import type { EvidenceSource } from "@/lib/polyvise-api/types";
 
 export type FroglingsSourceChip = {
   id: string;

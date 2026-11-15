@@ -106,7 +106,7 @@ import type {
   RoundTurn,
   Scorecard,
   PlaceholderInfo
-} from "@polyvise/core/debate/types";
+} from "@/lib/polyvise-api/types";
 
 type StartCountdownCue = {
   delayMs: number;

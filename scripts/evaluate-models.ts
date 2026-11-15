@@ -1,16 +1,31 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import type { DebateRun, ModelSnapshot } from "@/lib/polyvise-api/types";
+import { runOptions } from "@/server/generation-policy";
 import {
-  type EvidenceProviderName,
-  loadDebateRuntimeConfig,
-  modelOptionsFromConfig,
-  OpenRouterLlmProvider,
-  runHybridCouncilDebate,
-  type DebateRun,
-  type ModelSnapshot
-} from "@polyvise/core";
-import { RoundModelLlmProvider } from "@/server/round-model-provider";
+  generate,
+  getModelOptions,
+  runDebate,
+  type LlmCall,
+  type RuntimeConfigOverrides
+} from "@/server/polyvise-api";
+
+// Every model call goes through the Polyvise API (POLYVISE_API_URL), which
+// holds the provider keys. Debatefrog's output checks and repairs apply only
+// when DEBATEFROG_CALLBACK_URL points the API at a running Debatefrog.
+
+type EvidenceProviderName = NonNullable<RuntimeConfigOverrides["evidenceProvider"]>;
+type EvalConfig = RuntimeConfigOverrides & { evidenceProvider: EvidenceProviderName };
+
+/** One model, called directly through the API, for scoring a finished debate. */
+class JudgeModel {
+  constructor(private readonly model: string, private readonly config: RuntimeConfigOverrides) {}
+
+  generateStructured<T>(call: LlmCall) {
+    return generate<T>({ ...call, model: this.model }, this.config);
+  }
+}
 
 type EvalQuestion = {
   id: string;
@@ -179,8 +194,7 @@ const qualityJudgeOutputSchema = {
 } satisfies Record<string, unknown>;
 
 async function main() {
-  const config = {
-    ...loadDebateRuntimeConfig(),
+  const config: EvalConfig = {
     evidenceProvider: evalEvidenceProvider(),
     enableMockLlm: false,
     allowDeterministicFallbacks: false,
@@ -202,39 +216,23 @@ async function main() {
   const reuseDebateArtifacts = coerceBoolean(process.env.POLYVISE_EVAL_REUSE_DEBATE_ARTIFACTS, false);
   const requireDebateArtifacts = coerceBoolean(process.env.POLYVISE_EVAL_REQUIRE_DEBATE_ARTIFACTS, false);
   const qualityJudge = llmJudgeModel
-    ? new OpenRouterLlmProvider(
-        {
-          ...config,
-          quickModel: llmJudgeModel,
-          deepModel: llmJudgeModel,
-          yesModel: llmJudgeModel,
-          noModel: llmJudgeModel,
-          judgeModel: llmJudgeModel,
-          llmMaxAttempts: positiveInteger(process.env.POLYVISE_EVAL_JUDGE_MAX_ATTEMPTS, 2),
-          llmTimeoutMs: positiveInteger(process.env.POLYVISE_EVAL_JUDGE_TIMEOUT_MS, 45000),
-          llmMaxTokens: positiveInteger(process.env.POLYVISE_EVAL_JUDGE_MAX_TOKENS, 900)
-        },
-        process.env.OPENROUTER_API_KEY
-      )
+    ? new JudgeModel(llmJudgeModel, {
+        ...config,
+        llmMaxAttempts: positiveInteger(process.env.POLYVISE_EVAL_JUDGE_MAX_ATTEMPTS, 2),
+        llmTimeoutMs: positiveInteger(process.env.POLYVISE_EVAL_JUDGE_TIMEOUT_MS, 45000),
+        llmMaxTokens: positiveInteger(process.env.POLYVISE_EVAL_JUDGE_MAX_TOKENS, 900)
+      })
     : null;
   const secondQualityJudge = secondJudgeModel
-    ? new OpenRouterLlmProvider(
-        {
-          ...config,
-          quickModel: secondJudgeModel,
-          deepModel: secondJudgeModel,
-          yesModel: secondJudgeModel,
-          noModel: secondJudgeModel,
-          judgeModel: secondJudgeModel,
-          llmMaxAttempts: positiveInteger(process.env.POLYVISE_EVAL_SECOND_JUDGE_MAX_ATTEMPTS, 2),
-          llmTimeoutMs: positiveInteger(process.env.POLYVISE_EVAL_SECOND_JUDGE_TIMEOUT_MS, 45000),
-          llmMaxTokens: positiveInteger(process.env.POLYVISE_EVAL_SECOND_JUDGE_MAX_TOKENS, 900)
-        },
-        process.env.OPENROUTER_API_KEY
-      )
+    ? new JudgeModel(secondJudgeModel, {
+        ...config,
+        llmMaxAttempts: positiveInteger(process.env.POLYVISE_EVAL_SECOND_JUDGE_MAX_ATTEMPTS, 2),
+        llmTimeoutMs: positiveInteger(process.env.POLYVISE_EVAL_SECOND_JUDGE_TIMEOUT_MS, 45000),
+        llmMaxTokens: positiveInteger(process.env.POLYVISE_EVAL_SECOND_JUDGE_MAX_TOKENS, 900)
+      })
     : null;
   const questions = selectedQuestions(JSON.parse(await readFile(questionsPath, "utf8")) as EvalQuestion[]);
-  const roster = modelOptionsFromConfig(config).options;
+  const roster = await getModelOptions([]);
   const selectedModelIds = selectedModels(roster.map((model) => model.id));
   let estimatedSpendUsd = 0;
 
@@ -430,42 +428,26 @@ async function generateDebateRun({
   modelId,
   question
 }: {
-  config: ReturnType<typeof loadDebateRuntimeConfig>;
+  config: EvalConfig;
   modelId: string;
   question: EvalQuestion;
 }) {
-  const modelConfig = {
-    ...config,
-    quickModel: modelId,
-    deepModel: modelId,
-    yesModel: modelId,
-    noModel: modelId,
-    judgeModel: modelId
-  };
-  return runHybridCouncilDebate(
-    `eval_${question.id}_${slug(modelId)}`,
+  const options = runOptions({
+    opening: modelId,
+    crossExamination: modelId,
+    rebuttal: modelId,
+    closing: modelId,
+    judge: modelId
+  });
+  return runDebate(
     {
       subject: question.question,
       mode: "hybrid_council",
       evidence: "cited",
-      councilSize: "duo",
-      models: {
-        yes: modelId,
-        no: modelId,
-        judge: modelId
-      }
+      councilSize: "duo"
     },
-    undefined,
-    {
-      config: modelConfig,
-      provider: new RoundModelLlmProvider(modelConfig, {
-        opening: modelId,
-        crossExamination: modelId,
-        rebuttal: modelId,
-        closing: modelId,
-        judge: modelId
-      })
-    }
+    { ...options, streamTurns: false, config: { ...options.config, ...config } },
+    { debateId: `eval_${question.id}_${slug(modelId)}`, timeoutMs: 30 * 60_000 }
   );
 }
 
@@ -625,10 +607,10 @@ async function scoreRun({
   run: DebateRun;
   question: EvalQuestion;
   modelId: string;
-  qualityJudge: OpenRouterLlmProvider | null;
+  qualityJudge: JudgeModel | null;
   llmJudgeModel: string | null;
   llmJudgeWeight: number;
-  secondQualityJudge: OpenRouterLlmProvider | null;
+  secondQualityJudge: JudgeModel | null;
   secondJudgeModel: string | null;
   secondJudgeMode: "off" | "auto" | "always";
 }): Promise<QualityScore> {
@@ -755,7 +737,7 @@ async function judgeRunQuality({
 }: {
   run: DebateRun;
   question: EvalQuestion;
-  provider: OpenRouterLlmProvider;
+  provider: JudgeModel;
 }) {
   return provider.generateStructured<QualityJudgeOutput>({
     role: "evaluation judge",

@@ -1,4 +1,4 @@
-import type { DebateLiveEvent, DebateRecord } from "@polyvise/core/debate/types";
+import type { DebateLiveEvent, DebateRecord } from "@/lib/polyvise-api/types";
 
 const POLL_INTERVAL_MS = 10_000;
 const REQUEST_TIMEOUT_MS = 10_000;

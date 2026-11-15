@@ -22,6 +22,6 @@ Use a bounded scrolling list with wrapping question text. Header and dialog acti
 
 ## Ownership and evidence
 
-Debatefrog owns these navigation controls, age-appropriate copy, and browser persistence. History entries use Polyvise Core's `DebateRecord` fields and `debateStatuses`; reopening uses the app's existing record retrieval, hydration, and event watching. Generic execution and recovery remain in Core.
+Debatefrog owns these navigation controls, age-appropriate copy, and browser persistence. History entries use the Polyvise API's `DebateRecord` fields and `debateStatuses`; reopening uses the app's existing record retrieval, hydration, and event watching. Generic execution and recovery remain in Core.
 
 Implementation: `src/components/debate-navigation.tsx`, `src/components/froglings-workspace.tsx`, `src/lib/debate-history.ts`, and `src/app/globals.css`. Reviewed captures: `.impeccable/review/desktop.png`, `mobile.png` (360 × 780), `history-desktop.png`, `history-mobile.png`, and `header-focus.png`.
