@@ -1,5 +1,5 @@
 import { ExternalLink } from "lucide-react";
-import type { EvidenceSource, RoundTurn } from "@polyvise/core/debate/types";
+import type { EvidenceSource, RoundTurn } from "@/lib/polyvise-api/types";
 import { buildFroglingsSourceChips } from "@/lib/source-chips";
 import { friendlyRound, froglingsBubbleText, froglingsFrogName } from "@/lib/froglings-text";
 

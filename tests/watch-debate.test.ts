@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { DebateRecord } from "@polyvise/core/debate/types";
+import type { DebateRecord } from "@/lib/polyvise-api/types";
 import { DEBATE_IDLE_TIMEOUT_MS, watchDebate } from "@/lib/watch-debate";
 
 class FakeEventSource extends EventTarget {

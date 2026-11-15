@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { EvidenceSource } from "@polyvise/core/debate/types";
+import type { EvidenceSource } from "@/lib/polyvise-api/types";
 import { buildFroglingsSourceChips } from "@/lib/source-chips";
 
 describe("Debatefrog source chips", () => {

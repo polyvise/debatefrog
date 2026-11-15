@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { debateStatuses, type DebateRecord, type UserFeedback } from "@polyvise/core/debate/types";
+import { debateStatuses, type DebateRecord, type UserFeedback } from "@/lib/polyvise-api/types";
 import { summarizePublicStats } from "@/server/stats";
 
 function debate(

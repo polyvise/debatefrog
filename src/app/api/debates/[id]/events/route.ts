@@ -1,5 +1,5 @@
 import { getDebate, subscribeToDebate } from "@/server/debate-store";
-import type { DebateLiveEvent } from "@polyvise/core/debate/types";
+import type { DebateLiveEvent } from "@/lib/polyvise-api/types";
 
 export const dynamic = "force-dynamic";
 
@@ -19,7 +19,7 @@ export async function GET(_request: Request, context: RouteContext) {
   let teardown: (() => void) | null = null;
 
   const stream = new ReadableStream<Uint8Array>({
-    start(controller) {
+    async start(controller) {
       let closed = false;
       let heartbeat: ReturnType<typeof setInterval> | null = null;
       let unsubscribe = () => {};
@@ -57,7 +57,7 @@ export async function GET(_request: Request, context: RouteContext) {
 
       const requestedAttempt = new URL(_request.url).searchParams.get("attempt");
       const attempt = requestedAttempt === null ? debate.recovery?.attempt : Number(requestedAttempt);
-      const subscription = subscribeToDebate(id, writeEvent, attempt);
+      const subscription = await subscribeToDebate(id, writeEvent, attempt);
       unsubscribe = subscription.unsubscribe;
       if (_request.signal.aborted) closeStream();
 

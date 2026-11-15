@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
-import { ZodError } from "zod";
 import { submitFeedback } from "@/server/debate-store";
+import { PolyviseApiError } from "@/server/polyvise-api";
 
 const feedbackApp = process.env.POLYVISE_APP_CHANNEL === "preview" ? "debatefrog-preview" : "debatefrog";
 
@@ -28,7 +28,7 @@ export async function POST(request: NextRequest) {
       }
     );
   } catch (error) {
-    if (error instanceof ZodError) {
+    if (error instanceof PolyviseApiError && error.invalidRequest) {
       return Response.json({ error: "Feedback needs a little more shape." }, { status: 400 });
     }
 

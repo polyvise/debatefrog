@@ -11,7 +11,7 @@ if [[ -f "$APP_ENV" ]]; then
   set +a
 fi
 
-for name in OPENROUTER_API_KEY TAVILY_API_KEY; do
+for name in POLYVISE_API_URL POLYVISE_API_KEY; do
   if [[ -n "${!name:-}" ]]; then
     echo "$name: configured"
   else

@@ -43,7 +43,7 @@ import {
   literalQuestionText
 } from "@/lib/froglings-text";
 import type { FroglingsLiveState } from "@/components/froglings-workspace";
-import type { DebateRound, RoundTurn, Scorecard } from "@polyvise/core/debate/types";
+import type { DebateRound, RoundTurn, Scorecard } from "@/lib/polyvise-api/types";
 
 /** Debate rounds in performance order (judge_review/synthesis aren't staged). */
 const ROUND_ORDER: DebateRound[] = ["opening", "cross_examination", "rebuttal", "closing"];

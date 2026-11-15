@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { DebateRecord } from "@polyvise/core/debate/types";
+import type { DebateRecord } from "@/lib/polyvise-api/types";
 import { FirestoreDebateRepository, MemoryDebateRepository } from "@/server/repository";
 
 const record = { id: "test", status: "failed", createdAt: "2026-11-12T00:00:00.000Z", updatedAt: "2026-11-12T00:00:00.001Z" } as DebateRecord;

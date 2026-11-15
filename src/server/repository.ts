@@ -1,7 +1,7 @@
 import { and, desc, eq, sql } from "drizzle-orm";
 import { getDb } from "./db/client";
 import { debateRecords, userFeedback } from "./db/schema";
-import type { DebateRecord, UserFeedback } from "@polyvise/core/debate/types";
+import type { DebateRecord, UserFeedback } from "@/lib/polyvise-api/types";
 
 export interface DebateRepository {
   save(debate: DebateRecord): Promise<void>;

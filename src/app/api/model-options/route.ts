@@ -1,29 +1,26 @@
-import { loadDebateRuntimeConfig, modelOptionsFromConfig } from "@polyvise/core/debate/config";
-import { getKnownModel } from "@polyvise/core/models/catalog";
 import {
   debateStepModelKeys,
   resolveDebateStepModelDefaults
 } from "@/lib/debate-step-models";
+import { getModelOptions, getRuntime } from "@/server/polyvise-api";
 
 export async function GET() {
-  const coreOptions = modelOptionsFromConfig(loadDebateRuntimeConfig());
   const defaults = resolveDebateStepModelDefaults();
-  const optionById = new Map(coreOptions.options.map((option) => [option.id, option]));
-
-  for (const key of debateStepModelKeys) {
-    const id = defaults[key];
-    if (optionById.has(id)) continue;
-    optionById.set(id, { id, label: getKnownModel(id)?.label ?? id });
-  }
+  const defaultIds = [...new Set(debateStepModelKeys.map((key) => defaults[key]))];
+  // The engine's choices and its provider keys live on the Polyvise API.
+  const [options, runtime] = await Promise.all([
+    getModelOptions(defaultIds).catch(() => defaultIds.map((id) => ({ id, label: id }))),
+    getRuntime().catch(() => null)
+  ]);
 
   return Response.json(
     {
       defaults,
-      options: [...optionById.values()],
+      options,
       dev: {
-        liveApiToggleAvailable: process.env.NODE_ENV !== "production",
-        hasOpenRouterKey: Boolean(process.env.OPENROUTER_API_KEY),
-        hasTavilyKey: Boolean(process.env.TAVILY_API_KEY)
+        liveApiToggleAvailable: process.env.NODE_ENV !== "production" && runtime !== null && !runtime.production,
+        hasOpenRouterKey: Boolean(runtime?.providers.openrouter),
+        hasTavilyKey: Boolean(runtime?.providers.tavily)
       }
     },
     {

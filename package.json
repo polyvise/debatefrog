@@ -2,7 +2,7 @@
   "name": "@polyvise/debatefrog",
   "version": "0.3.0",
   "private": true,
-  "description": "Debatefrog reference application powered by the Polyvise debate engine.",
+  "description": "Debatefrog reference application powered by the Polyvise API debate engine.",
   "scripts": {
     "predev": "node scripts/generate-audio-manifest.mjs",
     "dev": "next dev --port 3001",
@@ -19,7 +19,6 @@
     "verify": "npm run typecheck && npm run test:coverage && npm run build"
   },
   "dependencies": {
-    "@polyvise/core": "0.4.2-preview.4",
     "drizzle-orm": "latest",
     "lucide-react": "latest",
     "next": "latest",

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { DebateLiveEvent } from "@polyvise/core/debate/types";
+import type { DebateLiveEvent } from "@/lib/polyvise-api/types";
 
 const store = vi.hoisted(() => ({ getDebate: vi.fn(), subscribeToDebate: vi.fn() }));
 vi.mock("@/server/debate-store", () => store);
